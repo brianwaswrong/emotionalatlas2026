@@ -1,8 +1,9 @@
 'use client';
-import { useEffect, useState } from 'react';
-import type { Entry } from '../lib/types';
+import { useEffect, useRef, useState } from 'react';
+import type { Classification, Entry } from '@/lib/types';
 import { simulateClassification, simulateOCR } from '../lib/simulate';
 import { uid } from '../lib/utils';
+import { insertEntry, updateEntryClassification } from "@/lib/db";
 
 function IconX() {
   return (
@@ -84,6 +85,23 @@ export function SubmitModal({
   const [textBody, setTextBody] = useState('');
   const [location, setLocation] = useState('');
 
+  const [hoveredTile, setHoveredTile] = useState<"image" | "text" | null>(null);
+  const isImageHovered = hoveredTile === "image";
+  const isTextHovered = hoveredTile === "text";
+
+  const [ocrLoading, setOcrLoading] = useState(false);
+  const [ocrError, setOcrError] = useState<string | null>(null);
+
+  function fileToDataUrl(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error("Failed to read file"));
+      reader.onload = () => resolve(String(reader.result));
+      reader.readAsDataURL(file);
+    });
+  }
+
+
   const [isProcessing, setIsProcessing] = useState(false);
   const ui =
     theme === 'dark'
@@ -107,6 +125,12 @@ export function SubmitModal({
           overlay: 'rgba(18,19,24,0.20)',
           shadow: 'rgba(0,0,0,0.18)',
         };
+
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const openFilePicker = () => {
+    fileInputRef.current?.click();
+  };
 
   useEffect(() => {
     if (!imageFile) {
@@ -133,47 +157,100 @@ export function SubmitModal({
   const submitFromText = async (text: string, img?: string) => {
     const clean = text.trim();
     if (!clean) return;
-
+  
     setIsProcessing(true);
-    await new Promise((r) => setTimeout(r, 350));
-
-    const cls = simulateClassification(clean);
-    const createdAt = new Date().toISOString().slice(0, 10);
-
-    const entry: Entry = {
-      id: uid(),
-      title: cls.title,
-      body: clean,
-      createdAt,
-      valence: cls.valence,
-      arousal: cls.arousal,
-      emotion: cls.emotion,
-      location: location.trim() || undefined,
-      imageUrl: img,
-      source: img ? 'image' : 'text',
-      ocrText: img ? clean : undefined,
-      classification: {
-        emotion: cls.emotion,
-        valence: cls.valence,
-        arousal: cls.arousal,
-        plutchikPrimary: cls.plutchikPrimary,
-        confidence: cls.confidence,
-      },
-    };
-
-    onSubmit(entry);
-    setIsProcessing(false);
-    onClose();
+  
+    try {
+      // 1) Insert entry FIRST with null classification
+      const createdAt = new Date().toISOString().slice(0, 10);
+  
+      const entryToInsert: Entry = {
+        id: "temp",              // ignored by DB insert; your insertEntry returns real id
+        body: clean,
+        createdAt,
+        location: location.trim() || undefined,
+        imageUrl: img,
+        source: img ? "image" : "text",
+        ocrText: img ? clean : undefined,
+        // Leave these unset; classification comes later
+        title: undefined,
+        emotion: undefined,
+        valence: undefined,
+        arousal: undefined,
+        classification: undefined,
+      };
+  
+      const inserted = await insertEntry(entryToInsert); // must return Entry with real id
+      const entryId = inserted.id;
+  
+      // 2) Call OpenAI classification
+      const r = await fetch("/api/classify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: clean }),
+      });
+  
+      const payload = await r.json();
+      if (!r.ok) throw new Error(payload?.error || "Classification failed");
+  
+      const classification = payload as Classification;
+  
+      // 3) Update the same row with classification fields
+      const updated = await updateEntryClassification(entryId, classification);
+  
+      // 4) Update UI with the actual saved + classified entry
+      onSubmit(updated);
+  
+      onClose();
+    } catch (e: any) {
+      console.error(e);
+      alert(e?.message || "Submit failed");
+    } finally {
+      setIsProcessing(false);
+    }
   };
+  
 
-  const onPickFile = async (f: File) => {
-    setImageFile(f);
-    setIsProcessing(true);
-    const simulated = simulateOCR(f);
-    await new Promise((r) => setTimeout(r, 550));
-    setOcrText(simulated);
-    setIsProcessing(false);
-  };
+  const onPickFile = async (file: File) => {
+    console.log("onPickFile fired", file?.name, file?.type, file?.size);
+    setOcrError(null);
+    setOcrLoading(true);
+  
+    try {
+      setImageFile(file);
+  
+      // Preview
+      const dataUrl = await fileToDataUrl(file);
+      setImagePreviewUrl(dataUrl);
+  
+      // Move to image screen only once we have a file
+      setMode("image");
+  
+      // Placeholder while OCR runs
+      setOcrText("Extracting text…");
+  
+      // OCR call
+      console.log("OCR: calling /api/ocr");
+      const r = await fetch("/api/ocr", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageDataUrl: dataUrl }),
+      });
+  
+      console.log("OCR: status", r.status);
+      const j = await r.json();
+      if (!r.ok) throw new Error(j?.error || "OCR failed");
+      console.log("OCR: response", j);
+
+      setOcrText(j?.text || "");
+    } catch (e: any) {
+      console.error(e);
+      setOcrText("⚠️ No text detected — please type or paste manually.");
+      setOcrError(e?.message || "OCR failed");
+    } finally {
+      setOcrLoading(false);
+    }
+  };  
 
   const onDrop = async (ev: React.DragEvent<HTMLDivElement>) => {
     ev.preventDefault();
@@ -204,7 +281,7 @@ export function SubmitModal({
         onMouseDown={(e) => e.stopPropagation()}
         style={{
           width: 'min(840px, 96vw)',
-          maxHeight: '86vh',
+          maxHeight: '100vh',
           overflow: 'hidden',
           borderRadius: 22,
           background: ui.panel,
@@ -233,12 +310,28 @@ export function SubmitModal({
               background: ui.card,
               color: ui.fg,
               cursor: 'pointer',
+
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 0,
             }}
             aria-label="Close"
           >
             <IconX />
           </button>
         </div>
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          style={{ display: "none" }}
+          onChange={async (e) => {
+            const f = e.target.files?.[0];
+            if (f) await onPickFile(f); // keep your existing handler
+          }}
+        />
 
         <div
           style={{
@@ -256,81 +349,117 @@ export function SubmitModal({
               }}
             >
               <div
-                onClick={() => setMode('image')}
+                onClick={() => openFilePicker()}
+                onMouseEnter={() => setHoveredTile("image")}
+                onMouseLeave={() => setHoveredTile(null)}
                 style={{
-                  border: '1px solid rgba(255,255,255,0.10)',
-                  background: 'rgba(255,255,255,0.04)',
+                  border: `1px solid ${
+                    isImageHovered ? "rgba(255,215,120,0.55)" : "rgba(255,255,255,0.10)"
+                  }`,
+                  background: isImageHovered ? "rgba(255,215,120,0.06)" : "rgba(255,255,255,0.04)",
                   borderRadius: 18,
-                  padding: 14,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 12,
-                  boxShadow: '0 14px 40px rgba(0,0,0,0.35)',
+                  padding: 18,
+                  cursor: "pointer",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 10,
+                  boxShadow: isImageHovered
+                    ? "0 0 0 1px rgba(255,215,120,0.18), 0 14px 40px rgba(0,0,0,0.35)"
+                    : "0 14px 40px rgba(0,0,0,0.35)",
+                  minHeight: "20vh",
+                  textAlign: "center",
+                  transition: "all 180ms ease",
                 }}
               >
                 <div
                   style={{
-                    width: 42,
-                    height: 42,
-                    borderRadius: 14,
-                    border: '1px solid rgba(255,255,255,0.10)',
-                    background: 'rgba(255,255,255,0.06)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
+                    width: 52,
+                    height: 52,
+                    borderRadius: 16,
+                    border: `1px solid ${
+                      isImageHovered ? "rgba(255,215,120,0.45)" : "rgba(255,255,255,0.10)"
+                    }`,
+                    background: isImageHovered ? "rgba(255,215,120,0.10)" : "rgba(255,255,255,0.06)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: isImageHovered ? "#FFD778" : ui.fg,
+                    boxShadow: isImageHovered ? "0 0 18px rgba(255,215,120,0.20)" : "none",
+                    transition: "all 180ms ease",
                   }}
                 >
                   <IconUpload />
                 </div>
-                <div>
-                  <div style={{ fontWeight: 760 }}>Upload Image</div>
-                  <div style={{ fontSize: 12, opacity: 0.75, marginTop: 2 }}>
-                    OCR extracts text for editing
-                  </div>
+
+                <div style={{ fontWeight: 760, color: ui.fg, fontSize: 14 }}>
+                  Upload Image
+                </div>
+
+                <div style={{ fontSize: 12, opacity: 0.75, marginTop: 0, color: ui.fg2 }}>
+                  OCR extracts text for editing
                 </div>
               </div>
 
+
               <div
-                onClick={() => setMode('text')}
+                onClick={() => setMode("text")}
+                onMouseEnter={() => setHoveredTile("text")}
+                onMouseLeave={() => setHoveredTile(null)}
                 style={{
-                  background: ui.panel,
-                  border: `1px solid ${ui.border}`,
+                  border: `1px solid ${
+                    isTextHovered ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.10)"
+                  }`,
+                  background: isTextHovered ? "rgba(255,255,255,0.055)" : ui.panel,
                   borderRadius: 18,
-                  padding: 14,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 12,
-                  boxShadow: '0 14px 40px rgba(0,0,0,0.35)',
+                  padding: 18,
+                  cursor: "pointer",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 10,
+                  boxShadow: isTextHovered
+                    ? "0 0 0 1px rgba(255,255,255,0.08), 0 14px 40px rgba(0,0,0,0.35)"
+                    : "0 14px 40px rgba(0,0,0,0.35)",
+                  minHeight: "20vh",
+                  textAlign: "center",
+                  transition: "all 180ms ease",
                 }}
               >
                 <div
                   style={{
-                    width: 42,
-                    height: 42,
-                    borderRadius: 14,
-                    background: ui.panel,
-                    border: `1px solid ${ui.border}`,
+                    width: 52,
+                    height: 52,
+                    borderRadius: 16,
+                    border: `1px solid ${
+                      isTextHovered ? "rgba(255,255,255,0.16)" : "rgba(255,255,255,0.10)"
+                    }`,
+                    background: isTextHovered ? "rgba(255,255,255,0.10)" : "rgba(255,255,255,0.06)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
                     color: ui.fg,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
+                    transition: "all 180ms ease",
                   }}
                 >
-                  <IconDoc />
+                  <IconDoc /> {/* swap to whatever your text icon component is */}
                 </div>
-                <div>
-                  <div style={{ fontWeight: 760 }}>Paste Text</div>
-                  <div style={{ fontSize: 12, opacity: 0.75, marginTop: 2 }}>
-                    Copy from journal or LLM
-                  </div>
+
+                <div style={{ fontWeight: 760, color: ui.fg, fontSize: 14 }}>
+                  Paste Text
+                </div>
+
+                <div style={{ fontSize: 12, opacity: 0.75, color: ui.fg2 }}>
+                  Copy from your journal or chatbot conversation
                 </div>
               </div>
+
             </div>
           )}
 
-          {mode === 'image' && (
+          {mode === "image" && imagePreviewUrl && (
             <div
               style={{
                 marginTop: 14,
@@ -340,152 +469,189 @@ export function SubmitModal({
                 padding: 14,
               }}
             >
-              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                <div style={{ flex: '1 1 320px', minWidth: 280 }}>
-                  <div
-                    onDragOver={(e) => e.preventDefault()}
-                    onDrop={onDrop}
-                    style={{
-                      borderRadius: 16,
-                      background: ui.panel,
-                      border: `1px solid ${ui.border}`,
-                      padding: 14,
-                      minHeight: 160,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      textAlign: 'center',
-                      color: ui.fg,
-                    }}
-                  >
-                    <div>
-                      <div style={{ fontWeight: 760, marginBottom: 6 }}>
-                        Drag & drop an image
-                      </div>
-                      <div style={{ fontSize: 12, opacity: 0.75 }}>
-                        or choose a file
-                      </div>
-                      <div style={{ marginTop: 10 }}>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={async (e) => {
-                            const f = e.target.files?.[0];
-                            if (f) await onPickFile(f);
-                          }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {imagePreviewUrl && (
-                    <div
-                      style={{
-                        marginTop: 12,
-                        borderRadius: 16,
-                        border: `1px solid ${ui.border}`,
-                        overflow: 'hidden',
-                      }}
-                    >
-                      <img
-                        src={imagePreviewUrl}
-                        alt="Preview"
-                        style={{ width: '100%', display: 'block' }}
-                      />
-                    </div>
-                  )}
-
-                  <div style={{ fontSize: 12, opacity: 0.75, marginTop: 10 }}>
-                    OCR + classification are simulated in this prototype.
-                  </div>
-                </div>
-
-                <div style={{ flex: '1 1 320px', minWidth: 280 }}>
-                  <textarea
-                    value={ocrText}
-                    onChange={(e) => setOcrText(e.target.value)}
-                    placeholder={
-                      imageFile
-                        ? 'Waiting for OCR…'
-                        : 'Upload an image to simulate OCR'
-                    }
-                    style={{
-                      width: '100%',
-                      minHeight: 180,
-                      borderRadius: 16,
-                      background: ui.panel,
-                      border: `1px solid ${ui.border}`,
-                      color: ui.fg,
-                      padding: 12,
-                      fontSize: 13,
-                      outline: 'none',
-                      resize: 'vertical',
-                    }}
-                  />
-
-                  <input
-                    value={location}
-                    onChange={(e) => setLocation(e.target.value)}
-                    placeholder="Location (optional)"
-                    style={{
-                      width: '100%',
-                      height: 46,
-                      marginTop: 10,
-                      borderRadius: 16,
-                      background: ui.panel,
-                      border: `1px solid ${ui.border}`,
-                      color: ui.fg,
-                      padding: '0 12px',
-                      fontSize: 13,
-                      outline: 'none',
-                    }}
-                  />
-
+              {/* Image preview card */}
+              <div
+                style={{
+                  position: "relative",
+                  borderRadius: 16,
+                  border: `1px solid ${ui.border}`,
+                  overflow: "hidden",
+                  background: ui.panel,
+                }}
+              >
+                {/* Top bar overlay */}
+                <div
+                  style={{
+                    position: "absolute",
+                    top: 10,
+                    left: 10,
+                    right: 10,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    pointerEvents: "none",
+                  }}
+                >
                   <div
                     style={{
-                      display: 'flex',
-                      justifyContent: 'flex-end',
+                      pointerEvents: "auto",
+                      display: "inline-flex",
+                      alignItems: "center",
                       gap: 8,
-                      marginTop: 12,
+                      padding: "6px 10px",
+                      borderRadius: 999,
+                      border: `1px solid ${ui.border}`,
+                      background: theme === "dark"
+                        ? "rgba(10,12,16,0.72)"
+                        : "rgba(255,255,255,0.72)",
+                      color: ui.fg,
+                      backdropFilter: "blur(10px)",
+                      fontSize: 12,
+                      fontWeight: 650,
                     }}
                   >
-                    <button
-                      onClick={() => setMode('pick')}
-                      disabled={isProcessing}
-                      style={{
-                        background: ui.panel,
-                        border: `1px solid ${ui.border}`,
-                        color: ui.fg,
-                        borderRadius: 999,
-                        padding: '8px 12px',
-                        cursor: 'pointer',
-                        opacity: isProcessing ? 0.6 : 1,
-                      }}
-                    >
-                      Back
-                    </button>
-                    <button
-                      onClick={() =>
-                        submitFromText(ocrText, imagePreviewUrl ?? undefined)
-                      }
-                      disabled={!ocrText.trim() || isProcessing}
-                      style={{
-                        background: ui.panel,
-                        border: `1px solid ${ui.border}`,
-                        color: ui.fg,
-                        borderRadius: 999,
-                        padding: '8px 12px',
-                        cursor: 'pointer',
-                        opacity: !ocrText.trim() || isProcessing ? 0.6 : 1,
-                      }}
-                    >
-                      {isProcessing ? 'Processing' : 'Submit'}
-                    </button>
+                    Image Source
                   </div>
+
+                  <button
+                    onClick={() => {
+                      // back to pick, and clear image-related state
+                      setMode("pick");
+                      setImageFile(null);
+                      setImagePreviewUrl(null);
+                      setOcrText("");
+                      // also clear file input so selecting same file again works
+                      if (fileInputRef.current) fileInputRef.current.value = "";
+                    }}
+                    style={{
+                      pointerEvents: "auto",
+                      width: 36,
+                      height: 36,
+                      borderRadius: 999,
+                      border: `1px solid ${ui.border}`,
+                      background: theme === "dark"
+                        ? "rgba(10,12,16,0.72)"
+                        : "rgba(255,255,255,0.72)",
+                      color: ui.fg,
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      padding: 0,
+                      backdropFilter: "blur(10px)",
+                    }}
+                    aria-label="Remove image and go back"
+                  >
+                    <IconX />
+                  </button>
                 </div>
+
+                <img
+                  src={imagePreviewUrl}
+                  alt="Preview"
+                  style={{ width: "100%", display: "block", maxHeight: 260, objectFit: "cover" }}
+                />
+              </div>
+
+              {/* Location */}
+              <input
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+                placeholder="Location (optional)"
+                style={{
+                  width: "100%",
+                  height: 46,
+                  marginTop: 12,
+                  borderRadius: 16,
+                  background: ui.panel,
+                  border: `1px solid ${ui.border}`,
+                  color: ui.fg,
+                  padding: "0 12px",
+                  fontSize: 13,
+                  outline: "none",
+                }}
+              />
+
+              {/* Extracted text */}
+              {ocrError && (
+                <div style={{ fontSize: 12, color: "tomato", marginTop: 6 }}>
+                  {ocrError}
+                </div>
+              )}
+
+              <div style={{ marginTop: 12, fontSize: 12, opacity: 0.8, color: ui.fg2 }}>
+                Extracted Text (edit if needed)
+              </div>
+
+              <textarea
+                value={ocrText}
+                onChange={(e) => setOcrText(e.target.value)}
+                placeholder={"Extracting text…"}
+                style={{
+                  width: "100%",
+                  minHeight: 200,
+                  marginTop: 8,
+                  borderRadius: 16,
+                  background: ui.panel,
+                  border: `1px solid ${ui.border}`,
+                  color: ui.fg,
+                  padding: 12,
+                  fontSize: 13,
+                  outline: "none",
+                  resize: "vertical",
+                }}
+              />
+
+              {/* Actions */}
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "flex-end",
+                  gap: 8,
+                  marginTop: 12,
+                }}
+              >
+                <button
+                  onClick={() => {
+                    setMode("pick");
+                    setImageFile(null);
+                    setImagePreviewUrl(null);
+                    setOcrText("");
+                    if (fileInputRef.current) fileInputRef.current.value = "";
+                  }}
+                  disabled={isProcessing}
+                  style={{
+                    background: ui.panel,
+                    border: `1px solid ${ui.border}`,
+                    color: ui.fg,
+                    borderRadius: 999,
+                    padding: "8px 12px",
+                    cursor: "pointer",
+                    opacity: isProcessing ? 0.6 : 1,
+                  }}
+                >
+                  Back
+                </button>
+
+                <button
+                  onClick={() => submitFromText(ocrText, imagePreviewUrl ?? undefined)}
+                  disabled={!ocrText.trim() || isProcessing || ocrLoading}
+                  style={{
+                    background: ui.panel,
+                    border: `1px solid ${ui.border}`,
+                    color: ui.fg,
+                    borderRadius: 999,
+                    padding: "8px 12px",
+                    cursor: "pointer",
+                    opacity: !ocrText.trim() || isProcessing ? 0.6 : 1,
+                  }}
+                >
+                  {isProcessing ? "Processing" : ocrLoading ? "Extracting…" : "Submit"}
+                </button>
               </div>
             </div>
           )}
+
 
           {mode === 'text' && (
             <div
@@ -500,7 +666,7 @@ export function SubmitModal({
               <textarea
                 value={textBody}
                 onChange={(e) => setTextBody(e.target.value)}
-                placeholder="Paste text here…"
+                placeholder="Write or paste text here…"
                 style={{
                   width: '100%',
                   minHeight: 220,

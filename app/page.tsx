@@ -109,7 +109,7 @@ export default function App() {
   };
   const dragRef = useRef<DragState | null>(null);
   const [isDragging, setIsDragging] = useState(false);
-  const [lockUntil, setLockUntil] = useState(0);
+  const lockUntilRef = useRef(0);
   const hitRadiusPx = () => clamp(vpRef.current.scale / 18, 14, 80);
 
   const requestDraw = () => {
@@ -134,6 +134,12 @@ export default function App() {
     });
   };
 
+  const entriesRef = useRef(entries);
+
+  useEffect(() => {
+    entriesRef.current = entries;
+  }, [entries]);
+
   useEffect(() => {
     requestDraw();
     const onResize = () => requestDraw();
@@ -157,8 +163,6 @@ export default function App() {
     const stillExists = entries.some((e) => e.id === selected.id);
     if (!stillExists) setSelected(null);
   }, [search, entries, selected]);
-
-  const interactionLocked = isDragging || Date.now() < lockUntil;
 
   const onPointerDown = (ev: React.PointerEvent<HTMLCanvasElement>) => {
     const c = canvasRef.current;
@@ -209,18 +213,18 @@ export default function App() {
       }
     }
 
-    if (interactionLocked) {
+    if (isDragging || Date.now() < lockUntilRef.current) {
       setHovered(null);
       return;
     }
-
+    
     ensureViewportCentered(c, vpRef.current);
     const hit = pickEntryAtPoint(
       ev.clientX,
       ev.clientY,
       c,
       vpRef.current,
-      entries,
+      entriesRef.current,
       hitRadiusPx()
     );
     setHovered(hit);
@@ -240,7 +244,7 @@ export default function App() {
     dragRef.current = null;
 
     setIsDragging(false);
-    setLockUntil(Date.now() + 140);
+    lockUntilRef.current = Date.now() + 140;
     c.style.cursor = 'grab';
 
     if (!drag) return;
@@ -254,7 +258,7 @@ export default function App() {
       ev.clientY,
       c,
       vpRef.current,
-      entries,
+      entriesRef.current,
       hitRadiusPx()
     );
     setSelected(hit); // IMPORTANT: allows click-empty to dismiss
@@ -275,7 +279,7 @@ export default function App() {
   };
 
   const onWheel = (ev: React.WheelEvent<HTMLCanvasElement>) => {
-    ev.preventDefault();
+    // ev.preventDefault();
     const c = canvasRef.current;
     if (!c) return;
     ensureViewportCentered(c, vpRef.current);
@@ -382,26 +386,24 @@ export default function App() {
             onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
             style={{
               margin: 5,
-              width: 36,
+              width: 108,
               height: 36,
               borderRadius: 999,
-              border: '1px solid rgba(255,255,255,0.10)',
-              background:
-                theme === 'dark'
-                  ? 'rgba(255,255,255,0.06)'
-                  : 'rgba(18,19,24,0.06)',
-              color:
-                theme === 'dark'
-                  ? 'rgba(255,255,255,0.9)'
-                  : 'rgba(18,19,24,0.9)',
+              border: `1px solid ${ui.border}`,
+              background: ui.card,
+              color: ui.fg,
               cursor: 'pointer',
               boxShadow: '0 10px 26px rgba(0,0,0,0.28)',
               backdropFilter: 'blur(14px)',
-              fontSize: 14,
+              fontSize: 12,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 0,
             }}
             aria-label="Toggle theme"
           >
-            {theme === 'dark' ? '☀︎' : '☾'}
+            {theme === 'dark' ? '☼  Light Mode' : '☾⋆ Dark Mode'}
           </button>
         </div>
 
@@ -439,7 +441,7 @@ export default function App() {
         <div
           style={{
             position: 'absolute',
-            bottom: 36,
+            bottom: 74,
             left: '50%',
             transform: 'translateX(-50%)',
             fontSize: 12,
@@ -516,7 +518,7 @@ export default function App() {
       {hovered &&
         !isDragging &&
         (() => {
-          const emotionColor = hashColor(hovered.emotion);
+          const emotionColor = hashColor(hovered.emotion ?? "pending");
           const emotionBg = emotionColor.replace(')', ' / 0.16)');
 
           return (
@@ -599,6 +601,9 @@ export default function App() {
             </div>
           );
         })()}
+      <div style={{ position: "fixed", left: 12, bottom: 12, zIndex: 9999 }}>
+        dragging: {String(isDragging)} | hovered: {hovered ? hovered.id : "none"}
+      </div>
 
       {/* DetailPanel */}
       <DetailPanel
@@ -638,16 +643,11 @@ export default function App() {
       <SubmitModal
         open={isSubmitOpen}
         onClose={() => setIsSubmitOpen(false)}
-        onSubmit={async (entry) => {
-          try {
-            const saved = await insertEntry(entry);
-            setDbEntries((prev) => [saved, ...prev]);
-            setSelected(saved);
-          } catch (err: any) {
-            console.error(err);
-            setDbEntries((prev) => [entry, ...prev]); // fallback so UX still works
-            setSelected(entry);
-          }
+        onSubmit={(entry: any) => {
+          // SubmitModal already inserted + classified + updated in Supabase.
+          // This handler should ONLY update UI state.
+          setDbEntries((prev) => [entry, ...prev]);
+          setSelected(entry);
         }}
         theme={theme}
       />

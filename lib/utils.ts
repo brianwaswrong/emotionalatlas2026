@@ -10,14 +10,21 @@ export function pickFrom<T>(arr: T[]) {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
-export function hashColor(seed: string) {
+export function hashColor(seed?: string) {
+  if (!seed || typeof seed !== "string") {
+    // fallback neutral color
+    return "hsl(220 10% 60%)";
+  }
+
   let h = 0;
   for (let i = 0; i < seed.length; i++) {
     h = (h * 31 + seed.charCodeAt(i)) >>> 0;
   }
+
   const hue = h % 360;
-  return `hsl(${hue} 70% 58%)`;
+  return `hsl(${hue} 70% 60%)`;
 }
+
 
 export function fmtDate(iso: string) {
   const d = new Date(iso + 'T00:00:00');

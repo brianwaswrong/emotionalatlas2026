@@ -131,6 +131,10 @@ export function DbModal({
               background: ui.card,
               color: ui.fg,
               cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 0,
             }}
             aria-label="Close"
           >
@@ -216,8 +220,12 @@ export function DbModal({
                       </td>
                       <td style={td}>{e.title}</td>
                       <td style={td}>{e.location ?? ''}</td>
-                      <td style={td}>{e.valence.toFixed(2)}</td>
-                      <td style={td}>{e.arousal.toFixed(2)}</td>
+                      <td style={td}>
+                        {typeof e.valence === "number" ? e.valence.toFixed(2) : "—"}
+                      </td>
+                      <td style={td}>
+                        {typeof e.arousal === "number" ? e.arousal.toFixed(2) : "—"}
+                      </td>
                     </tr>
                   );
                 })}

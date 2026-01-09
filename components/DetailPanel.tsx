@@ -261,20 +261,14 @@ export function DetailPanel({
               width: 38,
               height: 38,
               borderRadius: 999,
-              border: `1px solid ${
-                theme === 'dark'
-                  ? 'rgba(255,255,255,0.22)'
-                  : 'rgba(18,19,24,0.20)'
-              }`,
-              background:
-                theme === 'dark'
-                  ? 'rgba(0,0,0,0.34)'
-                  : 'rgba(255,255,255,0.82)',
-              color: ui.fg,
+              border: `1px solid ${ui.border}`,
+              background: ui.card,
+              color: ui.fg, 
               backdropFilter: 'blur(10px)',
-              display: 'block',
+              display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
+              padding: 0,
               cursor: 'pointer',
               boxShadow:
                 theme === 'dark'

@@ -1,5 +1,6 @@
-import { getSupabaseClient } from './supabase';
+import { supabase } from './supabase';
 import type { Entry } from './types';
+import type { Classification } from "./types";
 
 type DbRow = {
   id: string;
@@ -10,16 +11,24 @@ type DbRow = {
   image_url: string | null;
 
   final_text: string;
-  title: string;
+  title: string | null;
 
-  emotion: string;
-  plutchik_primary: string;
-  valence: number;
-  arousal: number;
-  confidence: number;
+  emotion: string | null;
+  plutchik_primary: string | null;
+  valence: number | null;
+  arousal: number | null;
+  confidence: number | null;
 };
 
 function rowToEntry(r: DbRow): Entry {
+  const hasClassification =
+    r.title &&
+    r.emotion &&
+    r.plutchik_primary &&
+    r.valence !== null &&
+    r.arousal !== null &&
+    r.confidence !== null;
+
   return {
     id: r.id,
     createdAt: r.created_at.slice(0, 10),
@@ -28,20 +37,26 @@ function rowToEntry(r: DbRow): Entry {
     imageUrl: r.image_url ?? undefined,
 
     body: r.final_text,
-    title: r.title,
 
-    emotion: r.emotion,
-    valence: r.valence,
-    arousal: r.arousal,
-    classification: {
-      emotion: r.emotion,
-      plutchikPrimary: r.plutchik_primary,
-      valence: r.valence,
-      arousal: r.arousal,
-      confidence: r.confidence,
-    },
+    // top-level convenience fields (optional now)
+    title: r.title ?? undefined,
+    emotion: r.emotion ?? undefined,
+    valence: r.valence ?? undefined,
+    arousal: r.arousal ?? undefined,
+
+    classification: hasClassification
+      ? {
+          title: r.title!,
+          emotion: r.emotion!,
+          plutchikPrimary: r.plutchik_primary!,
+          valence: r.valence!,
+          arousal: r.arousal!,
+          confidence: r.confidence!,
+        }
+      : undefined,
   };
 }
+
 
 export async function fetchEntries(): Promise<Entry[]> {
   const { data, error } = await supabase
@@ -60,19 +75,43 @@ export async function insertEntry(e: Entry): Promise<Entry> {
     image_url: e.imageUrl ?? null,
 
     final_text: e.body,
-    title: e.title,
 
-    emotion: e.emotion,
-    plutchik_primary: e.classification?.plutchikPrimary ?? e.emotion,
-    valence: e.valence,
-    arousal: e.arousal,
-    confidence: e.classification?.confidence ?? 0.7,
+    // classification fields start null unless you already have them
+    title: e.classification?.title ?? e.title ?? null,
+    emotion: e.classification?.emotion ?? e.emotion ?? null,
+    plutchik_primary: e.classification?.plutchikPrimary ?? null,
+    valence: e.classification?.valence ?? e.valence ?? null,
+    arousal: e.classification?.arousal ?? e.arousal ?? null,
+    confidence: e.classification?.confidence ?? null,
   };
 
   const { data, error } = await supabase
     .from('entries')
     .insert(payload)
     .select('*')
+    .single();
+
+  if (error) throw error;
+  return rowToEntry(data as DbRow);
+}
+
+
+export async function updateEntryClassification(
+  entryId: string,
+  c: Classification
+): Promise<Entry> {
+  const { data, error } = await supabase
+    .from("entries")
+    .update({
+      title: c.title,
+      emotion: c.emotion,
+      plutchik_primary: c.plutchikPrimary,
+      valence: c.valence,
+      arousal: c.arousal,
+      confidence: c.confidence,
+    })
+    .eq("id", entryId)
+    .select("*")
     .single();
 
   if (error) throw error;
