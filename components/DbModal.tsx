@@ -1,6 +1,7 @@
 'use client';
 import type { Entry } from '../lib/types';
 import { fmtDate, hashColor } from '../lib/utils';
+import { emotionColor, emotionBg } from "@/lib/colors";
 
 function IconX() {
   return (
@@ -176,7 +177,11 @@ export function DbModal({
               </thead>
               <tbody>
                 {entries.map((e) => {
-                  const c = hashColor(e.emotion);
+                  const c = emotionColor(
+                    e.classification?.plutchikPrimary,
+                    e.emotion
+                  );
+                  // const c = hashColor(e.emotion);
                   return (
                     <tr
                       key={e.id}

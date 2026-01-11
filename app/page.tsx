@@ -1,32 +1,17 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { Entry } from '/lib/types';
-import { makeMockEntries } from '/lib/simulate';
-import { ensureViewportCentered, type Viewport } from '/canvas/viewport';
-import { clamp, hashColor, fmtDateShort } from '/lib/utils';
-import { drawScene } from '/canvas/draw';
-import { pickEntryAtPoint } from '/canvas/hitTest';
-import { DetailPanel } from '/components/DetailPanel';
-import { SubmitModal } from '/components/SubmitModal';
-import { DbModal } from '/components/DbModal';
-import { fetchEntries, insertEntry } from '/lib/db';
-
-function computeCentroids(entries: Entry[]) {
-  const acc = new Map<string, { x: number; y: number; n: number }>();
-  for (const e of entries) {
-    const cur = acc.get(e.emotion) ?? { x: 0, y: 0, n: 0 };
-    cur.x += e.valence;
-    cur.y += e.arousal;
-    cur.n += 1;
-    acc.set(e.emotion, cur);
-  }
-
-  const out: Array<{ emotion: string; x: number; y: number }> = [];
-  acc.forEach((v, emotion) => {
-    out.push({ emotion, x: v.x / v.n, y: v.y / v.n });
-  });
-  return out;
-}
+import type { Entry } from '@/lib/types';
+import { makeMockEntries } from '@/lib/simulate';
+import { ensureViewportCentered, type Viewport } from '@/canvas/viewport';
+import { clamp, hashColor, fmtDateShort } from '@/lib/utils';
+import { drawScene } from '@/canvas/draw';
+import { pickEntryAtPoint } from '@/canvas/hitTest';
+import { DetailPanel } from '@/components/DetailPanel';
+import { SubmitModal } from '@/components/SubmitModal';
+import { DbModal } from '@/components/DbModal';
+import { fetchEntries, insertEntry, fetchEntryById} from '@/lib/db';
+import { EMOTIONS_32, PLUTCHIK_8, TIER1_BY_TIER2 } from "@/lib/emotions";
+import {emotionColor, emotionBg} from '@/lib/colors'
 
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -60,19 +45,38 @@ export default function App() {
   const [dbError, setDbError] = useState<string | null>(null);
   const [dbLoading, setDbLoading] = useState(true);
 
+  const didLoadRef = useRef(false);
+
   useEffect(() => {
+    console.log("LOAD EFFECT FIRED", Date.now());
+
+    // if (didLoadRef.current) return;
+    // didLoadRef.current = true;
+
+    let cancelled = false;
+
     (async () => {
       try {
         setDbLoading(true);
+        setDbError(null);
+
         const rows = await fetchEntries();
-        setDbEntries(rows.length ? rows : makeMockEntries(40)); // optional seed fallback
+        if (cancelled) return;
+
+        setDbEntries(rows);
       } catch (e: any) {
-        setDbError(e?.message ?? 'Failed to load entries');
-        setDbEntries(makeMockEntries(40)); // fallback for now
+        if (cancelled) return;
+        setDbError(e?.message ?? "Failed to load entries");
+        setDbEntries([]);
       } finally {
+        if (cancelled) return;
         setDbLoading(false);
       }
     })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const [search, setSearch] = useState('');
@@ -94,8 +98,58 @@ export default function App() {
     );
   }, [dbEntries, search]);
 
-  const centroids = useMemo(() => computeCentroids(entries), [entries]);
-
+  //1.10.26 New centroids
+  const centroidsTier2 = useMemo(() => {
+    // group by tier2 emotion
+    const acc = new Map<string, { x: number; y: number; n: number }>();
+    for (const e of entries) {
+      if (!e.emotion || e.valence == null || e.arousal == null) continue;
+      const cur = acc.get(e.emotion) ?? { x: 0, y: 0, n: 0 };
+      cur.x += e.valence;
+      cur.y += e.arousal;
+      cur.n += 1;
+      acc.set(e.emotion, cur);
+    }
+  
+    const out: Array<{ label: string; tier1?: string; x: number; y: number }> = [];
+    acc.forEach((v, emotion) => {
+      out.push({
+        label: emotion,
+        tier1: TIER1_BY_TIER2[emotion], // import mapping
+        x: v.x / v.n,
+        y: v.y / v.n,
+      });
+    });
+    return out;
+  }, [entries]);
+  
+  const centroidsTier1 = useMemo(() => {
+    // group by tier1
+    const acc = new Map<string, { x: number; y: number; n: number }>();
+    for (const e of entries) {
+      if (!e.emotion || e.valence == null || e.arousal == null) continue;
+      const tier1 = TIER1_BY_TIER2[e.emotion];
+      if (!tier1) continue;
+  
+      const cur = acc.get(tier1) ?? { x: 0, y: 0, n: 0 };
+      cur.x += e.valence;
+      cur.y += e.arousal;
+      cur.n += 1;
+      acc.set(tier1, cur);
+    }
+  
+    const out: Array<{ label: string; tier1?: string; x: number; y: number }> = [];
+    acc.forEach((v, tier1) => {
+      out.push({
+        label: tier1,
+        tier1,
+        x: v.x / v.n,
+        y: v.y / v.n,
+      });
+    });
+    return out;
+  }, [entries]);
+  
   const [selected, setSelected] = useState<Entry | null>(null);
 
   const vpRef = useRef<Viewport>({ scale: 92, tx: 0, ty: 0 });
@@ -130,7 +184,7 @@ export default function App() {
       // // }
 
       ensureViewportCentered(c, vpRef.current);
-      drawScene(ctx, c, vpRef.current, entries, centroids, theme);
+      drawScene(ctx, c, vpRef.current, entries, centroidsTier1, centroidsTier2, theme);
     });
   };
 
@@ -154,7 +208,7 @@ export default function App() {
 
   useEffect(() => {
     requestDraw();
-  }, [entries, centroids, theme]);
+  }, [entries, centroidsTier1, centroidsTier2, theme]);  
 
   useEffect(() => {
     if (!selected) return;
@@ -163,6 +217,31 @@ export default function App() {
     const stillExists = entries.some((e) => e.id === selected.id);
     if (!stillExists) setSelected(null);
   }, [search, entries, selected]);
+
+  useEffect(() => {
+    if (!selected?.id) return;
+  
+    let cancelled = false;
+  
+    (async () => {
+      try {
+        // If it's already hydrated, don’t refetch
+        if (selected.imageUrl || (selected.body && selected.body.length > 0)) return;
+  
+        const full = await fetchEntryById(selected.id);
+        if (cancelled) return;
+  
+        setSelected(full); // replace light selected with full selected
+      } catch (e) {
+        console.error("fetchEntryById failed", e);
+      }
+    })();
+  
+    return () => {
+      cancelled = true;
+    };
+  }, [selected?.id]);
+  
 
   const onPointerDown = (ev: React.PointerEvent<HTMLCanvasElement>) => {
     const c = canvasRef.current;
@@ -518,8 +597,15 @@ export default function App() {
       {hovered &&
         !isDragging &&
         (() => {
-          const emotionColor = hashColor(hovered.emotion ?? "pending");
-          const emotionBg = emotionColor.replace(')', ' / 0.16)');
+          const c = emotionColor(
+            hovered.classification?.plutchikPrimary,
+            hovered.emotion
+          );
+        
+          const b = emotionBg(
+            hovered.classification?.plutchikPrimary,
+            hovered.emotion
+          );
 
           return (
             <div
@@ -577,8 +663,8 @@ export default function App() {
                     padding: '4px 10px',
                     borderRadius: 5,
                     border: `0px solid ${emotionColor}`,
-                    color: emotionColor,
-                    background: emotionBg,
+                    color: c,
+                    background: b,
                     boxShadow: `0 0 18px ${emotionColor}55`,
                     fontSize: 12,
                   }}

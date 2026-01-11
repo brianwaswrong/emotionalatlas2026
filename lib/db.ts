@@ -57,15 +57,83 @@ function rowToEntry(r: DbRow): Entry {
   };
 }
 
+type DbRowLight = Pick<
+  DbRow,
+  | "id"
+  | "created_at"
+  | "source"
+  | "location"
+  | "title"
+  | "emotion"
+  | "plutchik_primary"
+  | "valence"
+  | "arousal"
+  | "confidence"
+>;
+
+function rowToEntryLight(r: DbRowLight): Entry {
+  const hasClassification =
+    r.title &&
+    r.emotion &&
+    r.plutchik_primary &&
+    r.valence !== null &&
+    r.arousal !== null &&
+    r.confidence !== null;
+
+  return {
+    id: r.id,
+    createdAt: r.created_at.slice(0, 10),
+    source: r.source,
+    location: r.location ?? undefined,
+
+    // Not fetched in list mode:
+    imageUrl: undefined,
+    body: "",
+
+    title: r.title ?? undefined,
+    emotion: r.emotion ?? undefined,
+    valence: r.valence ?? undefined,
+    arousal: r.arousal ?? undefined,
+
+    classification: hasClassification
+      ? {
+          title: r.title!,
+          emotion: r.emotion!,
+          plutchikPrimary: r.plutchik_primary!,
+          valence: r.valence!,
+          arousal: r.arousal!,
+          confidence: r.confidence!,
+        }
+      : undefined,
+  };
+}
 
 export async function fetchEntries(): Promise<Entry[]> {
+  const t0 = performance.now();
+
   const { data, error } = await supabase
-    .from('entries')
-    .select('*')
-    .order('created_at', { ascending: false });
+    .from("entries")
+    .select("id,created_at,source,location,title,emotion,plutchik_primary,valence,arousal,confidence")
+    .order("created_at", { ascending: false })
+    .limit(200);
+
+  const ms = Math.round(performance.now() - t0);
+  console.log("SUPABASE fetchEntries", { ms, rows: data?.length ?? 0, error });
 
   if (error) throw error;
-  return (data as DbRow[]).map(rowToEntry);
+  return (data as any[]).map(rowToEntryLight);
+}
+
+
+export async function fetchEntryById(id: string): Promise<Entry> {
+  const { data, error } = await supabase
+    .from("entries")
+    .select("*")
+    .eq("id", id)
+    .single();
+
+  if (error) throw error;
+  return rowToEntry(data as DbRow);
 }
 
 export async function insertEntry(e: Entry): Promise<Entry> {
@@ -116,4 +184,9 @@ export async function updateEntryClassification(
 
   if (error) throw error;
   return rowToEntry(data as DbRow);
+}
+
+export async function deleteEntry(id: string) {
+  const { error } = await supabase.from("entries").delete().eq("id", id);
+  if (error) throw error;
 }

@@ -1,6 +1,8 @@
 'use client';
 import type { Entry } from '../lib/types';
 import { fmtDate, hashColor } from '../lib/utils';
+import { emotionColor, emotionBg } from "@/lib/colors";
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 function IconX() {
   return (
@@ -144,27 +146,47 @@ export function DetailPanel({
     );
   }
 
-  const emotionColor = hashColor(entry.emotion);
+  const color = emotionColor(
+    entry.classification?.plutchikPrimary,
+    entry.emotion
+  );
+  
+  const bg = emotionBg(
+    entry.classification?.plutchikPrimary,
+    entry.emotion
+  );
+  
   const showImg = !!entry.imageUrl;
 
-  const EmotionPill = ({ emotion }: { emotion: string }) => {
-    const c = hashColor(emotion);
+  const EmotionPill = ({ label }: { label: string }) => {
+    const c = emotionColor(
+      entry.classification?.plutchikPrimary,
+      label
+    );
+  
+    const b = emotionBg(
+      entry.classification?.plutchikPrimary,
+      label
+    );
+  
     return (
       <span
         style={{
-          display: 'inline-flex',
-          alignItems: 'center',
+          display: "inline-flex",
+          alignItems: "center",
           gap: 8,
-          padding: '6px 12px',
+          padding: "6px 12px",
           borderRadius: 999,
           border: `1px solid ${c}`,
           background:
-            theme === 'dark' ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.65)',
-          backdropFilter: 'blur(14px)',
+            theme === "dark"
+              ? b.replace("/ 0.16", "/ 0.22")
+              : b.replace("/ 0.16", "/ 0.14"),
+          backdropFilter: "blur(14px)",
           boxShadow: `0 0 18px ${c}55`,
           color: c,
           fontSize: 12,
-          fontWeight: 'bold',
+          fontWeight: 700,
         }}
       >
         <span
@@ -174,13 +196,26 @@ export function DetailPanel({
             borderRadius: 999,
             background: c,
             boxShadow: `0 0 14px ${c}`,
-            fontWeight: 'bold',
           }}
         />
-        {emotion}
+        {label}
       </span>
     );
-  };
+  };  
+
+  const [imgLoaded, setImgLoaded] = useState(false);
+
+  useEffect(() => {
+    setImgLoaded(false);
+    if (!entry?.imageUrl) return;
+
+    const img = new Image();
+    img.onload = () => setImgLoaded(true);
+    img.onerror = () => setImgLoaded(true); // fail “open” so you don’t spinner forever
+    img.src = entry.imageUrl;
+  }, [entry?.id, entry?.imageUrl]);
+
+  const shouldShowRealImg = showImg && entry.imageUrl && imgLoaded;
 
   return (
     <div
@@ -214,7 +249,7 @@ export function DetailPanel({
             style={{
               position: 'absolute',
               inset: 0,
-              backgroundImage: showImg
+              backgroundImage: shouldShowRealImg
                 ? `url(${entry.imageUrl})`
                 : `radial-gradient(circle at 30% 20%, ${emotionColor}55, transparent 55%), radial-gradient(circle at 70% 70%, ${emotionColor}33, transparent 60%), linear-gradient(180deg, rgba(0,0,0,0.03), rgba(0,0,0,0.00))`,
               backgroundSize: 'cover',
@@ -293,7 +328,7 @@ export function DetailPanel({
               zIndex: 3,
             }}
           >
-            <EmotionPill emotion={entry.emotion} />
+            <EmotionPill label={entry.emotion} />
             {entry.location ? (
               <span
                 style={{

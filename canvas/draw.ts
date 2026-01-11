@@ -2,15 +2,18 @@ import type { Entry } from '../lib/types';
 import type { Viewport } from './viewport';
 import { clamp, hashColor, dotRadiusPx } from '../lib/utils';
 import { worldToScreen } from './viewport';
+import {emotionColor, emotionBg} from '@/lib/colors'
 
 export function drawScene(
-  ctx: CanvasRenderingContext2D,
-  canvas: HTMLCanvasElement,
-  vp: Viewport,
-  entries: Entry[],
-  centroids: Array<{ emotion: string; x: number; y: number }>,
-  theme: 'dark' | 'light'
-) {
+    ctx: CanvasRenderingContext2D,
+    canvas: HTMLCanvasElement,
+    vp: Viewport,
+    entries: Entry[],
+    centroidsTier1: Array<{ label: string; tier1?: string; x: number; y: number }>,
+    centroidsTier2: Array<{ label: string; tier1?: string; x: number; y: number }>,
+    theme: 'dark' | 'light'
+  ) {
+
   const dpr = Math.max(1, window.devicePixelRatio || 1);
   const rect = canvas.getBoundingClientRect();
 
@@ -54,7 +57,10 @@ export function drawScene(
 
     if (s.x < -60 || s.y < -60 || s.x > w + 60 || s.y > h + 60) continue;
 
-    const color = hashColor(e.emotion);
+    const color = emotionColor(
+      e.classification?.plutchikPrimary,
+      e.emotion
+    );    
     const r = baseR;
 
     ctx.save();
@@ -78,7 +84,14 @@ export function drawScene(
     ctx.restore();
   }
 
-  if (showEmotions) drawCentroidPills(ctx, vp, centroids, theme);
+  const Z_TIER1 = 60;   // show tier1 at/after this
+  const Z_TIER2 = 180;  // switch to tier2 at/after this
+
+  if (vp.scale >= Z_TIER1 && vp.scale < Z_TIER2) {
+    drawTier1Fields(ctx, vp, centroidsTier1, theme);
+  } else if (vp.scale >= Z_TIER2) {
+    drawCentroidPills(ctx, vp, centroidsTier2, theme);
+  } 
 }
 
 function drawAxes(
@@ -111,7 +124,7 @@ function drawAxes(
 function drawCentroidPills(
   ctx: CanvasRenderingContext2D,
   vp: Viewport,
-  centroids: Array<{ emotion: string; x: number; y: number }>,
+  centroids: Array<{ label: string; tier1?: string; x: number; y: number }>,
   theme: 'dark' | 'light'
 ) {
   ctx.save();
@@ -123,8 +136,12 @@ function drawCentroidPills(
     const x = c.x * 6.0;
     const y = -c.y * 3.8;
     const s = worldToScreen(x, y, vp);
-    const label = c.emotion;
-    const color = hashColor(label);
+
+    const label = c.label;
+
+    // IMPORTANT: tier1 drives hue; label (tier2) drives shade.
+    const color = emotionColor(c.tier1, label);
+    const bg = emotionBg(c.tier1, label);
 
     const m = ctx.measureText(label);
     const padX = 10;
@@ -134,28 +151,102 @@ function drawCentroidPills(
     const rx = s.x - w / 2;
     const ry = s.y - 44;
 
+    // soft pill background
     ctx.shadowColor = color;
     ctx.shadowBlur = 18;
     ctx.fillStyle =
-      theme === 'dark' ? 'rgba(0,0,0,0.30)' : 'rgba(255,255,255,0.75)';
+      theme === 'dark'
+        ? bg.replace('/ 0.16', '/ 0.22') // slightly stronger in dark
+        : bg.replace('/ 0.16', '/ 0.14');
     roundRect(ctx, rx, ry, w, h, 999);
     ctx.fill();
 
+    // border
     ctx.shadowBlur = 0;
     ctx.strokeStyle = color;
     ctx.lineWidth = 1;
     ctx.stroke();
 
-    ctx.fillStyle = color;
+    // text
+    ctx.fillStyle = theme === 'dark' ? 'rgba(255,255,255,0.92)' : 'rgba(18,19,24,0.88)';
     ctx.fillText(label, s.x, ry + h / 2);
 
-    ctx.beginPath();
+    // left dot
+    // ctx.beginPath();
+    // ctx.fillStyle = color;
+    // ctx.shadowColor = color;
+    // ctx.shadowBlur = 12;
+    // ctx.arc(rx + 10, ry + h / 2, 3.5, 0, Math.PI * 2);
+    // ctx.fill();
+    // ctx.shadowBlur = 0;
+  }
+
+  ctx.restore();
+}
+
+function drawTier1Fields(
+  ctx: CanvasRenderingContext2D,
+  vp: Viewport,
+  centroids: Array<{ label: string; tier1?: string; x: number; y: number }>,
+  theme: "dark" | "light"
+) {
+  ctx.save();
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+
+  // Region size grows a bit as you zoom in (tune later)
+  const worldRadius = clamp(1.15 + (vp.scale - 92) / 140, 1.15, 2.4);
+
+  for (const c of centroids) {
+    if (!c.tier1) continue;
+
+    const x = c.x * 6.0;
+    const y = -c.y * 3.8;
+    const s = worldToScreen(x, y, vp);
+
+    const label = c.tier1.toUpperCase();
+
+    // Tier1 drives hue; pass tier1 for both args to keep it stable
+    const color = emotionColor(c.tier1, c.tier1);
+
+    // Convert world radius to pixels at this zoom
+    const R = worldRadius * vp.scale;
+
+    ctx.save();
+    ctx.globalCompositeOperation = theme === "dark" ? "screen" : "source-over";
     ctx.fillStyle = color;
+
+    // 1) Hot core
+    ctx.globalAlpha = theme === "dark" ? 0.12 : 0.12;
     ctx.shadowColor = color;
-    ctx.shadowBlur = 12;
-    ctx.arc(rx + 10, ry + h / 2, 3.5, 0, Math.PI * 2);
+    ctx.shadowBlur = R * 0.5;
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, R * 0.38, 0, Math.PI * 2);
     ctx.fill();
-    ctx.shadowBlur = 0;
+
+    // 2) Mid glow
+    ctx.globalAlpha = theme === "dark" ? 0.08 : 0.07;
+    ctx.shadowBlur = R * 0.45;
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, R * 0.70, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 3) Outer haze
+    ctx.globalAlpha = theme === "dark" ? 0.04 : 0.04;
+    ctx.shadowBlur = R * 0.75;
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, R * 1.00, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // Caps text (no pill)
+    ctx.save();
+    ctx.font = '700 12px "Helvetica Neue", Helvetica, Arial, sans-serif';
+    ctx.fillStyle = theme === "dark" ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.42)";
+    ctx.shadowColor = theme === "dark" ? "rgba(0,0,0,0.55)" : "rgba(255,255,255,0.65)";
+    ctx.shadowBlur = 8;
+    ctx.fillText(label, s.x, s.y);
+    ctx.restore();
   }
 
   ctx.restore();

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { EMOTIONS_32, PLUTCHIK_8, TIER1_BY_TIER2 } from "@/lib/emotions";
 
 type ClassifyRequest = {
   text: string;
@@ -13,43 +14,43 @@ type ClassifyResponse = {
   confidence: number; // 0..1
 };
 
-const EMOTIONS_24 = [
-  'Joy',
-  'Gratitude',
-  'Hope',
-  'Acceptance',
-  'Calm',
-  'Love',
-  'Pride',
-  'Relief',
-  'Sadness',
-  'Loneliness',
-  'Grief',
-  'Disappointment',
-  'Anger',
-  'Frustration',
-  'Resentment',
-  'Fear',
-  'Anxiety',
-  'Insecurity',
-  'Shame',
-  'Guilt',
-  'Embarrassment',
-  'Awe',
-  'Curiosity',
-  'Determination',
-] as const;
+// const EMOTIONS_24 = [
+//   'Joy',
+//   'Gratitude',
+//   'Hope',
+//   'Acceptance',
+//   'Calm',
+//   'Love',
+//   'Pride',
+//   'Relief',
+//   'Sadness',
+//   'Loneliness',
+//   'Grief',
+//   'Disappointment',
+//   'Anger',
+//   'Frustration',
+//   'Resentment',
+//   'Fear',
+//   'Anxiety',
+//   'Insecurity',
+//   'Shame',
+//   'Guilt',
+//   'Embarrassment',
+//   'Awe',
+//   'Curiosity',
+//   'Determination',
+// ] as const;
 
-const PLUTCHIK_8 = [
-  'Joy',
-  'Trust',
-  'Fear',
-  'Surprise',
-  'Sadness',
-  'Disgust',
-  'Anger',
-  'Anticipation',
-] as const;
+// const PLUTCHIK_8 = [
+//   'Joy',
+//   'Trust',
+//   'Fear',
+//   'Surprise',
+//   'Sadness',
+//   'Disgust',
+//   'Anger',
+//   'Anticipation',
+// ] as const;
 
 function clamp(v: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, v));
@@ -64,43 +65,40 @@ function safeJsonParse<T>(s: string): T | null {
 }
 
 function normalizeOutput(raw: any): ClassifyResponse | null {
-  if (!raw || typeof raw !== 'object') return null;
+  if (!raw || typeof raw !== "object") return null;
 
-  const title = typeof raw.title === 'string' ? raw.title.trim() : '';
-  const emotion = typeof raw.emotion === 'string' ? raw.emotion.trim() : '';
-  const plutchikPrimary =
-    typeof raw.plutchikPrimary === 'string' ? raw.plutchikPrimary.trim() : '';
+  const title = typeof raw.title === "string" ? raw.title.trim() : "";
+  const emotion =
+    typeof raw.emotion === "string" ? raw.emotion.trim().replace(/\s+/g, " ") : "";
 
-  const valence =
-    typeof raw.valence === 'number' ? raw.valence : Number(raw.valence);
-  const arousal =
-    typeof raw.arousal === 'number' ? raw.arousal : Number(raw.arousal);
+  const valence = typeof raw.valence === "number" ? raw.valence : Number(raw.valence);
+  const arousal = typeof raw.arousal === "number" ? raw.arousal : Number(raw.arousal);
   const confidence =
-    typeof raw.confidence === 'number'
-      ? raw.confidence
-      : Number(raw.confidence);
+    typeof raw.confidence === "number" ? raw.confidence : Number(raw.confidence);
 
-  if (!title || !emotion || !plutchikPrimary) return null;
-  if (
-    !Number.isFinite(valence) ||
-    !Number.isFinite(arousal) ||
-    !Number.isFinite(confidence)
-  )
+  if (!title || !emotion) return null;
+
+  if (!Number.isFinite(valence) || !Number.isFinite(arousal) || !Number.isFinite(confidence))
     return null;
 
-  // enforce ranges
   const v = clamp(valence, -1, 1);
   const a = clamp(arousal, -1, 1);
   const c = clamp(confidence, 0, 1);
 
-  // enforce allowed labels (softly: if not, reject)
-  if (!(EMOTIONS_24 as readonly string[]).includes(emotion)) return null;
-  if (!(PLUTCHIK_8 as readonly string[]).includes(plutchikPrimary)) return null;
+  // allowed labels
+  if (!(EMOTIONS_32 as readonly string[]).includes(emotion)) return null;
+
+  // compute tier relationship deterministically
+  const expectedPrimary = TIER1_BY_TIER2[emotion];
+  if (!expectedPrimary) return null;
+
+  // optional: sanity check the mapping output is one of the 8
+  if (!(PLUTCHIK_8 as readonly string[]).includes(expectedPrimary)) return null;
 
   return {
     title,
     emotion,
-    plutchikPrimary,
+    plutchikPrimary: expectedPrimary,
     valence: v,
     arousal: a,
     confidence: c,
@@ -124,21 +122,26 @@ export async function POST(req: Request) {
   }
 
   const system = `
-You classify a journal entry into:
-- emotion: choose exactly ONE from this list: ${EMOTIONS_24.join(', ')}
-- plutchikPrimary: choose exactly ONE from: ${PLUTCHIK_8.join(', ')}
-- valence: number in [-1, 1] (negative to positive)
-- arousal: number in [-1, 1] (low energy to high energy)
-- title: short title (<= 64 chars) capturing the entry
-- confidence: number in [0, 1]
-Return ONLY valid JSON with keys: title, emotion, plutchikPrimary, valence, arousal, confidence.
-No markdown, no extra text.
+Classify a journal entry.
+- emotion: choose exactly ONE from: ${EMOTIONS_32.join(", ")}. Do not invent new labels.
+- valence: number in [-1, 1], based on felt positivity/negativity (not objective outcome). Use hundredths / 2 decimal point granularity. 
+- arousal: number in [-1, 1], based on emotional intensity/activation (not length or drama). Use hundredths / 2 decimal point granularity.
+- title: 2–7 words. A human inner thought or sharp excerpt from the entry.
+  Prefer blunt, natural language over summaries.
+  Fragments or imperatives are OK.
+- confidence: number in [0, 1] re: your assessment of emotion.
+
+Return ONLY valid JSON with keys:
+title, emotion, valence, arousal, confidence.
+No markdown. No extra text.
 `.trim();
 
+  
+
   const user = `
-Journal entry:
-${text}
-`.trim();
+  Journal entry:
+  ${text}
+  `.trim();
 
   // NOTE: uses OpenAI Responses API via fetch (no SDK dependency)
   const r = await fetch('https://api.openai.com/v1/responses', {
@@ -148,14 +151,32 @@ ${text}
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'gpt-4.1-mini',
+      model: "gpt-4.1-mini",
       input: [
-        { role: 'system', content: system },
-        { role: 'user', content: user },
+        { role: "system", content: system },
+        { role: "user", content: user },
       ],
-      // keep it deterministic-ish
       temperature: 0.2,
-    }),
+      text: {
+        format: {
+          type: "json_schema",
+          name: "journal_classification",
+          strict: true,
+          schema: {
+            type: "object",
+            additionalProperties: false,
+            required: ["title", "emotion", "valence", "arousal", "confidence"],
+            properties: {
+              title: { type: "string" },
+              emotion: { type: "string", enum: [...EMOTIONS_32] },
+              valence: { type: "number", minimum: -1, maximum: 1 },
+              arousal: { type: "number", minimum: -1, maximum: 1 },
+              confidence: { type: "number", minimum: 0, maximum: 1 },
+            },
+          },
+        },
+      },      
+    }),       
   });
 
   if (!r.ok) {
@@ -172,15 +193,20 @@ ${text}
   const textOut =
     data?.output_text ?? data?.output?.[0]?.content?.[0]?.text ?? '';
 
-  const parsed = safeJsonParse<any>(textOut);
-  const normalized = normalizeOutput(parsed);
-
-  if (!normalized) {
-    return NextResponse.json(
-      { error: 'Model returned invalid JSON', raw: textOut.slice(0, 500) },
-      { status: 502 }
-    );
-  }
-
-  return NextResponse.json(normalized);
+    const parsed = safeJsonParse<any>(textOut);
+    const normalized = normalizeOutput(parsed);
+    
+    if (!normalized) {
+      return NextResponse.json(
+        {
+          error: "Model returned invalid output (labels/shape)",
+          raw: textOut.slice(0, 2000),
+          parsedType: typeof parsed,
+          parsed,
+        },
+        { status: 502 }
+      );
+    }
+  
+    return NextResponse.json(normalized);
 }

@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { Classification, Entry } from '@/lib/types';
 import { simulateClassification, simulateOCR } from '../lib/simulate';
 import { uid } from '../lib/utils';
-import { insertEntry, updateEntryClassification } from "@/lib/db";
+import { insertEntry, updateEntryClassification, deleteEntry } from "@/lib/db";
 
 function IconX() {
   return (
@@ -158,63 +158,174 @@ export function SubmitModal({
     const clean = text.trim();
     if (!clean) return;
   
+    // Allow short entries, but block ultra-short noise (esp. OCR junk)
+    const wordCount = clean.split(/\s+/).filter(Boolean).length;
+    if (wordCount < 2 && clean.length < 8) {
+      alert("Too short — add a little more detail.");
+      return;
+    }
+  
     setIsProcessing(true);
   
+    let insertedId: string | null = null;
+  
     try {
-      // 1) Insert entry FIRST with null classification
+      // 1) Insert first (with placeholders OR nullable fields depending on your schema)
       const createdAt = new Date().toISOString().slice(0, 10);
   
-      const entryToInsert: Entry = {
-        id: "temp",              // ignored by DB insert; your insertEntry returns real id
+      // IMPORTANT: keep this aligned with what your DB currently accepts.
+      // If your DB requires non-null fields, insert safe placeholders here.
+      const entryToInsert: any = {
+        id: "temp",
         body: clean,
         createdAt,
         location: location.trim() || undefined,
         imageUrl: img,
         source: img ? "image" : "text",
         ocrText: img ? clean : undefined,
-        // Leave these unset; classification comes later
-        title: undefined,
-        emotion: undefined,
-        valence: undefined,
-        arousal: undefined,
+  
+        // placeholders (only needed if DB columns are NOT NULL)
+        title: "…",
+        emotion: "Pending",
+        valence: 0,
+        arousal: 0,
         classification: undefined,
       };
   
-      const inserted = await insertEntry(entryToInsert); // must return Entry with real id
-      const entryId = inserted.id;
+      const inserted = await insertEntry(entryToInsert);
+      insertedId = inserted.id;
   
-      // 2) Call OpenAI classification
+      // 2) Classify
       const r = await fetch("/api/classify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: clean }),
       });
   
-      const payload = await r.json();
-      if (!r.ok) throw new Error(payload?.error || "Classification failed");
+      const payload = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        console.error("CLASSIFY FAIL payload:", payload);
+        alert(JSON.stringify(payload, null, 2));
+        throw new Error(payload?.error || "Classification failed");
+      }
   
       const classification = payload as Classification;
   
-      // 3) Update the same row with classification fields
-      const updated = await updateEntryClassification(entryId, classification);
+      // 3) Update same row
+      const updated = await updateEntryClassification(insertedId, classification);
   
-      // 4) Update UI with the actual saved + classified entry
+      // 4) Update UI
       onSubmit(updated);
-  
       onClose();
-    } catch (e: any) {
+      } catch (e: any) {
       console.error(e);
+  
+      // Roll back the DB row if we inserted but didn't successfully classify/update
+      if (insertedId) {
+        try {
+          await deleteEntry(insertedId); // you'll add this to db.ts
+        } catch {
+          // swallow rollback errors; still show the original failure
+        }
+      }
+  
       alert(e?.message || "Submit failed");
     } finally {
       setIsProcessing(false);
     }
   };
   
+  
 
   const onPickFile = async (file: File) => {
     console.log("onPickFile fired", file?.name, file?.type, file?.size);
     setOcrError(null);
     setOcrLoading(true);
+  
+    // helper: small sleep for retry backoff
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  
+    // helper: OCR with retries + robust parsing
+    const ocrWithRetry = async (imageDataUrl: string) => {
+      const maxAttempts = 3;
+  
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 90_000); // 90s
+  
+        try {
+          console.log(`OCR: calling /api/ocr (attempt ${attempt}/${maxAttempts})`);
+  
+          const r = await fetch("/api/ocr", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ imageDataUrl }),
+            signal: controller.signal,
+          });
+  
+          const contentType = r.headers.get("content-type") || "";
+          const raw = await r.text();
+  
+          console.log("OCR: status", r.status, "content-type", contentType);
+          console.log("OCR: raw head", raw.slice(0, 200));
+  
+          // Retry on transient HTTP errors
+          const transient = [429, 500, 502, 503, 504].includes(r.status);
+  
+          if (!r.ok) {
+            if (transient && attempt < maxAttempts) {
+              await sleep(attempt === 1 ? 800 : 2000);
+              continue;
+            }
+            throw new Error(
+              `OCR failed (${r.status}). ${raw.slice(0, 200) || "No response body"}`
+            );
+          }
+  
+          // Even if status is 200, ensure JSON
+          if (!contentType.includes("application/json")) {
+            if (attempt < maxAttempts) {
+              await sleep(attempt === 1 ? 800 : 2000);
+              continue;
+            }
+            throw new Error(
+              `OCR returned non-JSON (${contentType || "unknown"}). ${raw.slice(0, 200)}`
+            );
+          }
+  
+          // Parse JSON safely
+          let j: any;
+          try {
+            j = JSON.parse(raw);
+          } catch {
+            if (attempt < maxAttempts) {
+              await sleep(attempt === 1 ? 800 : 2000);
+              continue;
+            }
+            throw new Error(`OCR returned invalid JSON. ${raw.slice(0, 200)}`);
+          }
+  
+          // Your API contract: { text: string }
+          return j;
+        } catch (e: any) {
+          const isAbort = e?.name === "AbortError";
+          if (isAbort && attempt < maxAttempts) {
+            await sleep(attempt === 1 ? 800 : 2000);
+            continue;
+          }
+          if (attempt < maxAttempts) {
+            await sleep(attempt === 1 ? 800 : 2000);
+            continue;
+          }
+          throw e;
+        } finally {
+          clearTimeout(timeout);
+        }
+      }
+  
+      // Should be unreachable
+      throw new Error("OCR failed after retries");
+    };
   
     try {
       setImageFile(file);
@@ -229,23 +340,24 @@ export function SubmitModal({
       // Placeholder while OCR runs
       setOcrText("Extracting text…");
   
-      // OCR call
-      console.log("OCR: calling /api/ocr");
-      const r = await fetch("/api/ocr", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageDataUrl: dataUrl }),
-      });
+      const j = await ocrWithRetry(dataUrl);
   
-      console.log("OCR: status", r.status);
-      const j = await r.json();
-      if (!r.ok) throw new Error(j?.error || "OCR failed");
       console.log("OCR: response", j);
-
-      setOcrText(j?.text || "");
+  
+      const text = typeof j?.text === "string" ? j.text : "";
+      setOcrText(text);
+  
+      // If OCR returns empty string, that’s a real “no text” case
+      if (!text.trim()) {
+        setOcrError("No text detected in image.");
+        setOcrText("⚠️ No text detected — please type or paste manually.");
+      }
     } catch (e: any) {
       console.error(e);
-      setOcrText("⚠️ No text detected — please type or paste manually.");
+  
+      // Important: don’t lie to the user. If it was a network/HTML error,
+      // tell them OCR failed, not “no text detected”.
+      setOcrText("⚠️ OCR failed — please retry, or type/paste manually.");
       setOcrError(e?.message || "OCR failed");
     } finally {
       setOcrLoading(false);
@@ -286,7 +398,7 @@ export function SubmitModal({
           borderRadius: 22,
           background: ui.panel,
           border: `1px solid ${ui.border}`,
-          boxShadow: `0 30px 80px ${ui.shadow}`,
+          boxShadow: `0 15px 40px ${ui.shadow}`,
           color: ui.fg,
         }}
       >
@@ -366,8 +478,8 @@ export function SubmitModal({
                   justifyContent: "center",
                   gap: 10,
                   boxShadow: isImageHovered
-                    ? "0 0 0 1px rgba(255,215,120,0.18), 0 14px 40px rgba(0,0,0,0.35)"
-                    : "0 14px 40px rgba(0,0,0,0.35)",
+                    ? "0 0 0 1px rgba(255,215,120,0.18), 0 5px 10px rgba(0,0,0,0.35)"
+                    : "0 5px 10px rgba(0,0,0,0.35)",
                   minHeight: "20vh",
                   textAlign: "center",
                   transition: "all 180ms ease",
@@ -386,7 +498,7 @@ export function SubmitModal({
                     alignItems: "center",
                     justifyContent: "center",
                     color: isImageHovered ? "#FFD778" : ui.fg,
-                    boxShadow: isImageHovered ? "0 0 18px rgba(255,215,120,0.20)" : "none",
+                    boxShadow: isImageHovered ? "0 0 9px rgba(255,215,120,0.20)" : "none",
                     transition: "all 180ms ease",
                   }}
                 >
@@ -421,8 +533,8 @@ export function SubmitModal({
                   justifyContent: "center",
                   gap: 10,
                   boxShadow: isTextHovered
-                    ? "0 0 0 1px rgba(255,255,255,0.08), 0 14px 40px rgba(0,0,0,0.35)"
-                    : "0 14px 40px rgba(0,0,0,0.35)",
+                    ? "0 0 0 1px rgba(255,255,255,0.08), 0 5px 10px rgba(0,0,0,0.35)"
+                    : "0 5px 10px rgba(0,0,0,0.35)",
                   minHeight: "20vh",
                   textAlign: "center",
                   transition: "all 180ms ease",
@@ -557,7 +669,7 @@ export function SubmitModal({
               <input
                 value={location}
                 onChange={(e) => setLocation(e.target.value)}
-                placeholder="Location (optional)"
+                placeholder="Location"
                 style={{
                   width: "100%",
                   height: 46,
@@ -628,6 +740,7 @@ export function SubmitModal({
                     padding: "8px 12px",
                     cursor: "pointer",
                     opacity: isProcessing ? 0.6 : 1,
+                    fontSize: 13,
                   }}
                 >
                   Back
@@ -644,6 +757,7 @@ export function SubmitModal({
                     padding: "8px 12px",
                     cursor: "pointer",
                     opacity: !ocrText.trim() || isProcessing ? 0.6 : 1,
+                    fontSize: 13,
                   }}
                 >
                   {isProcessing ? "Processing" : ocrLoading ? "Extracting…" : "Submit"}
@@ -684,7 +798,7 @@ export function SubmitModal({
               <input
                 value={location}
                 onChange={(e) => setLocation(e.target.value)}
-                placeholder="Location (optional)"
+                placeholder="Location"
                 style={{
                   width: '100%',
                   height: 46,
@@ -718,6 +832,7 @@ export function SubmitModal({
                     padding: '8px 12px',
                     cursor: 'pointer',
                     opacity: isProcessing ? 0.6 : 1,
+                    fontSize: 13,
                   }}
                 >
                   Back
@@ -733,6 +848,7 @@ export function SubmitModal({
                     padding: '8px 12px',
                     cursor: 'pointer',
                     opacity: !textBody.trim() || isProcessing ? 0.6 : 1,
+                    fontSize: 13,
                   }}
                 >
                   {isProcessing ? 'Processing' : 'Submit'}
