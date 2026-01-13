@@ -1,6 +1,7 @@
 import type { Entry } from '../lib/types';
 import type { Viewport } from './viewport';
 import { ensureViewportCentered, screenToWorld } from './viewport';
+import { entryAnchorWorld } from './draw';
 
 export function pickEntryAtPoint(
   clientX: number,
@@ -8,7 +9,8 @@ export function pickEntryAtPoint(
   canvas: HTMLCanvasElement,
   vp: Viewport,
   entries: Entry[],
-  radiusPx: number
+  radiusPx: number,
+  getPos?: (e: Entry) => { x: number; y: number }
 ): Entry | null {
   ensureViewportCentered(canvas, vp);
 
@@ -25,8 +27,10 @@ export function pickEntryAtPoint(
   let best: { e: Entry; d2: number } | null = null;
 
   for (const e of entries) {
-    const ex = e.valence * 6.0;
-    const ey = -e.arousal * 3.8;
+    const p = getPos ? getPos(e) : entryAnchorWorld(e);
+    const ex = p.x;
+    const ey = p.y;
+
 
     const dx = ex - world.x;
     const dy = ey - world.y;

@@ -2,18 +2,18 @@ import type { PlutchikPrimary } from "./emotions";
 import { TIER2_BY_TIER1 } from "./emotions";
 
 const BASE_HUE: Record<PlutchikPrimary, number> = {
-    Joy: 52,
-    Trust: 165,
-    Fear: 275,
-    Surprise: 210,
-    Sadness: 230,
-    Disgust: 110,
-    Anger: 8,
-    Anticipation: 320,
-  };
-  
+  Joy: 45,          // softer golden
+  Trust: 150,       // mint/seafoam
+  Fear: 265,        // lavender-purple
+  Surprise: 205,    // powder blue
+  Sadness: 225,     // periwinkle
+  Disgust: 105,     // sage
+  Anger: 12,        // coral
+  Anticipation: 315 // mauve/pink
+};
+
   // how wide each family’s arc is on the hue wheel
-  const HUE_SPAN = 28; // degrees (±14)  
+  const HUE_SPAN = 50; // degrees (±14)  
 
 function hsl(h: number, s: number, l: number) {
   return `hsl(${h} ${s}% ${l}%)`;
@@ -41,7 +41,7 @@ export function emotionColor(tier1?: string, tier2?: string) {
       count > 1
         ? ((idx / (count - 1)) - 0.5) * HUE_SPAN
         : 0;
-  
+
     const hue = (baseHue + offset + 360) % 360;
   
     return `hsl(${hue} 72% 58%)`;

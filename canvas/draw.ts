@@ -4,18 +4,27 @@ import { clamp, hashColor, dotRadiusPx } from '../lib/utils';
 import { worldToScreen } from './viewport';
 import {emotionColor, emotionBg} from '@/lib/colors'
 
+export function entryAnchorWorld(e: Entry) {
+  const v = e.valence ?? e.classification?.valence ?? 0;
+  const a = e.arousal ?? e.classification?.arousal ?? 0;
+  return { x: v * 6.0, y: -a * 6.0 };
+}
+
 export function drawScene(
-    ctx: CanvasRenderingContext2D,
-    canvas: HTMLCanvasElement,
-    vp: Viewport,
-    entries: Entry[],
-    centroidsTier1: Array<{ label: string; tier1?: string; x: number; y: number }>,
-    centroidsTier2: Array<{ label: string; tier1?: string; x: number; y: number }>,
-    theme: 'dark' | 'light'
-  ) {
+  ctx: CanvasRenderingContext2D,
+  canvas: HTMLCanvasElement,
+  vp: Viewport,
+  entries: Entry[],
+  centroidsTier1: Array<{ label: string; tier1?: string; x: number; y: number }>,
+  centroidsTier2: Array<{ label: string; tier1?: string; x: number; y: number }>,
+  theme: "dark" | "light",
+  getPos?: (e: Entry) => { x: number; y: number }
+) {
+
 
   const dpr = Math.max(1, window.devicePixelRatio || 1);
   const rect = canvas.getBoundingClientRect();
+  if (rect.width < 2 || rect.height < 2) return; // layout not ready
 
   const w = Math.floor(rect.width * dpr);
   const h = Math.floor(rect.height * dpr);
@@ -41,7 +50,7 @@ export function drawScene(
   );
   bg.addColorStop(1, 'rgba(255,255,255,0.00)');
   ctx.fillStyle = theme === 'dark' ? '#050608' : '#f3f2ff';
-  ctx.fillRect(0, 0, w, h);
+  // ctx.fillRect(0, 0, w, h);
 
   const showAxis = vp.scale > 34;
   const showEmotions = vp.scale > 92;
@@ -51,9 +60,10 @@ export function drawScene(
   const baseR = dotRadiusPx(vp.scale);
 
   for (const e of entries) {
-    const x = e.valence * 6.0;
-    const y = -e.arousal * 3.8;
-    const s = worldToScreen(x, y, vp);
+    if (e.valence == null || e.arousal == null) continue;
+    const p = getPos ? getPos(e) : entryAnchorWorld(e);
+    
+    const s = worldToScreen(p.x, p.y, vp);
 
     if (s.x < -60 || s.y < -60 || s.x > w + 60 || s.y > h + 60) continue;
 
@@ -84,7 +94,7 @@ export function drawScene(
     ctx.restore();
   }
 
-  const Z_TIER1 = 60;   // show tier1 at/after this
+  const Z_TIER1 = 50;   // show tier1 at/after this
   const Z_TIER2 = 180;  // switch to tier2 at/after this
 
   if (vp.scale >= Z_TIER1 && vp.scale < Z_TIER2) {
@@ -134,7 +144,7 @@ function drawCentroidPills(
 
   for (const c of centroids) {
     const x = c.x * 6.0;
-    const y = -c.y * 3.8;
+    const y = -c.y * 6.0;
     const s = worldToScreen(x, y, vp);
 
     const label = c.label;
@@ -156,8 +166,8 @@ function drawCentroidPills(
     ctx.shadowBlur = 18;
     ctx.fillStyle =
       theme === 'dark'
-        ? bg.replace('/ 0.16', '/ 0.22') // slightly stronger in dark
-        : bg.replace('/ 0.16', '/ 0.14');
+        ? bg.replace('/ 0.02', '/ 0.05') // slightly stronger in dark
+        : bg.replace('/ 0.01', '/ 0.02');
     roundRect(ctx, rx, ry, w, h, 999);
     ctx.fill();
 
@@ -201,7 +211,7 @@ function drawTier1Fields(
     if (!c.tier1) continue;
 
     const x = c.x * 6.0;
-    const y = -c.y * 3.8;
+    const y = -c.y * 6.0;
     const s = worldToScreen(x, y, vp);
 
     const label = c.tier1.toUpperCase();
@@ -217,7 +227,7 @@ function drawTier1Fields(
     ctx.fillStyle = color;
 
     // 1) Hot core
-    ctx.globalAlpha = theme === "dark" ? 0.12 : 0.12;
+    ctx.globalAlpha = theme === "dark" ? 0.07 : 0.05;
     ctx.shadowColor = color;
     ctx.shadowBlur = R * 0.5;
     ctx.beginPath();
@@ -225,14 +235,14 @@ function drawTier1Fields(
     ctx.fill();
 
     // 2) Mid glow
-    ctx.globalAlpha = theme === "dark" ? 0.08 : 0.07;
+    ctx.globalAlpha = theme === "dark" ? 0.07 : 0.05;
     ctx.shadowBlur = R * 0.45;
     ctx.beginPath();
     ctx.arc(s.x, s.y, R * 0.70, 0, Math.PI * 2);
     ctx.fill();
 
     // 3) Outer haze
-    ctx.globalAlpha = theme === "dark" ? 0.04 : 0.04;
+    ctx.globalAlpha = theme === "dark" ? 0.05 : 0.03;
     ctx.shadowBlur = R * 0.75;
     ctx.beginPath();
     ctx.arc(s.x, s.y, R * 1.00, 0, Math.PI * 2);

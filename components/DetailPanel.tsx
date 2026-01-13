@@ -216,26 +216,45 @@ export function DetailPanel({
   }, [entry?.id, entry?.imageUrl]);
 
   const shouldShowRealImg = showImg && entry.imageUrl && imgLoaded;
+  const [showImageViewer, setShowImageViewer] = useState(false);
 
   return (
+  
     <div
+      onClick={() => onClose?.()} // optional: only if you have onClose
       style={{
-        position: 'absolute',
-        top: 0,
-        right: 0,
-        height: '100%',
-        width: 'min(420px, 92vw)',
-        transform: open ? 'translateX(0%)' : 'translateX(105%)',
-        transition: 'transform 240ms ease',
+        position: "fixed",
+        inset: 0,
         zIndex: 10,
-        background: ui.panel,
-        backdropFilter: 'blur(18px)',
-        borderLeft: `1px solid ${ui.border}`,
-        color: ui.fg,
-        boxShadow: `-18px 0 60px ${ui.shadow}`,
-        fontFamily: `"Helvetica Neue", Helvetica, Arial, sans-serif`,
+        background: open ? "rgba(0,0,0,0.35)" : "rgba(0,0,0,0)",
+        backdropFilter: open ? "blur(6px)" : "blur(0px)",
+        opacity: open ? 1 : 0,
+        pointerEvents: open ? "auto" : "none",
+        transition: "opacity 220ms ease, backdrop-filter 220ms ease",
+        display: "grid",
+        placeItems: "center",
+        padding: "24px",
       }}
     >
+  {/* Modal */}
+  <div
+    onClick={(e) => e.stopPropagation()}
+    style={{
+      width: "min(720px, 92vw)",
+      maxHeight: "min(85vh, 820px)",
+      overflow: "auto",
+      transform: open ? "translateY(0px) scale(1)" : "translateY(18px) scale(0.98)",
+      opacity: open ? 1 : 0,
+      transition: "transform 240ms ease, opacity 240ms ease",
+      background: ui.panel,
+      backdropFilter: "blur(12px)",
+      border: `1px solid ${ui.border}`,
+      color: ui.fg,
+      boxShadow: `0 24px 80px ${ui.shadow}`,
+      borderRadius: 18,
+      fontFamily: `"Helvetica Neue", Helvetica, Arial, sans-serif`,
+    }}
+  >
       <div style={{ height: '100%', overflow: 'auto' }}>
         <div
           style={{
@@ -246,23 +265,29 @@ export function DetailPanel({
           }}
         >
           <div
+            onClick={() => {
+              if (shouldShowRealImg) setShowImageViewer(true);
+            }}
             style={{
               position: 'absolute',
               inset: 0,
+              cursor: shouldShowRealImg ? 'zoom-in' : 'default',
               backgroundImage: shouldShowRealImg
                 ? `url(${entry.imageUrl})`
-                : `radial-gradient(circle at 30% 20%, ${emotionColor}55, transparent 55%), radial-gradient(circle at 70% 70%, ${emotionColor}33, transparent 60%), linear-gradient(180deg, rgba(0,0,0,0.03), rgba(0,0,0,0.00))`,
+                : `radial-gradient(circle at 50% 40%, ${color} 0%, transparent 60%)`,
               backgroundSize: 'cover',
               backgroundPosition: 'center',
               filter: 'saturate(1.1) contrast(1.05)',
               transform: 'scale(1.02)',
             }}
-          />
+          >
 
+          {/* Dark/Light tint over the image */}
           <div
             style={{ position: 'absolute', inset: 0, background: ui.coverGrad }}
           />
 
+          {/* Bottom transition gradient */}
           <div
             style={{
               position: 'absolute',
@@ -270,6 +295,7 @@ export function DetailPanel({
               right: 0,
               bottom: 0,
               height: 130,
+              opacity: entry.source === 'image' ? 1 : 0, // ← this is the fix
               background: `linear-gradient(
                   to top,
                   ${panelBg} 0%,
@@ -285,6 +311,7 @@ export function DetailPanel({
               pointerEvents: 'none',
             }}
           />
+          </div>
 
           <button
             onClick={onClose}
@@ -448,7 +475,9 @@ export function DetailPanel({
               color: ui.fg3,
             }}
           >
-            JOURNAL ENTRY
+            {entry.source === "image"
+              ? "JOURNAL ENTRY"
+              : "CHATGPT / AI CONVERSATION"}
           </div>
           <div
             style={{
@@ -464,5 +493,36 @@ export function DetailPanel({
         </div>
       </div>
     </div>
+
+    {showImageViewer && (
+    <div
+      onClick={() => setShowImageViewer(false)}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 1000,
+        background: 'rgba(0,0,0,0.85)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        cursor: 'zoom-out',
+      }}
+    >
+      <img
+        src={entry.imageUrl}
+        alt=""
+        style={{
+          maxWidth: '92vw',
+          maxHeight: '92vh',
+          objectFit: 'contain',
+          borderRadius: 12,
+          boxShadow: '0 30px 80px rgba(0,0,0,0.6)',
+        }}
+      />
+    </div>
+  )}
+
+
+  </div>
   );
 }
