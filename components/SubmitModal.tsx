@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import type { Classification, Entry } from '@/lib/types';
-import { simulateClassification, simulateOCR } from '../lib/simulate';
+// import { simulateClassification, simulateOCR } from '../lib/simulate';
 import { uid } from '../lib/utils';
 import { insertEntry, updateEntryClassification, deleteEntry } from "@/lib/db";
 
