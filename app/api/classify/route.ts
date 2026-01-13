@@ -126,7 +126,7 @@ Classify a journal entry.
 - emotion: choose exactly ONE from: ${EMOTIONS_32.join(", ")}. Do not invent new labels.
 - valence: number in [-1, 1], based on felt positivity/negativity (not objective outcome). Use hundredths / 2 decimal point granularity. 
 - arousal: number in [-1, 1], based on emotional intensity/activation (not length or drama). Use hundredths / 2 decimal point granularity.
-- title: 2–7 words. A human inner thought or sharp excerpt from the entry.
+- title: A sharp, hook excerpt from the entry. If there isn't one, create one based on the context.
   Prefer blunt, natural language over summaries.
   Fragments or imperatives are OK.
 - confidence: number in [0, 1] re: your assessment of emotion.
