@@ -126,6 +126,16 @@ export function DetailPanel({
   const [imgLoaded, setImgLoaded] = useState(false);
   const [showImageViewer, setShowImageViewer] = useState(false);
 
+  useEffect(() => {
+    setImgLoaded(false);
+    if (!entry?.imageUrl) return;
+
+    const img = new Image();
+    img.onload = () => setImgLoaded(true);
+    img.onerror = () => setImgLoaded(true); // fail “open” so you don’t spinner forever
+    img.src = entry.imageUrl;
+  }, [entry?.id, entry?.imageUrl]);
+
   if (!entry) {
     return (
       <div
@@ -161,16 +171,6 @@ export function DetailPanel({
   
   const showImg = !!entry.imageUrl;
   const shouldShowRealImg = showImg && entry.imageUrl && imgLoaded;
-
-  useEffect(() => {
-    setImgLoaded(false);
-    if (!entry?.imageUrl) return;
-
-    const img = new Image();
-    img.onload = () => setImgLoaded(true);
-    img.onerror = () => setImgLoaded(true); // fail “open” so you don’t spinner forever
-    img.src = entry.imageUrl;
-  }, [entry?.id, entry?.imageUrl]);
 
   const EmotionPill = ({ label }: { label: string }) => {
     const c = emotionColor(

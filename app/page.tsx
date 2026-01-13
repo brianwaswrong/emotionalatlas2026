@@ -1269,16 +1269,16 @@ useEffect(() => { themeRef.current = theme; }, [theme]);
               <div style={{ fontSize: 14, lineHeight: 1.55, opacity: 0.9 }}>
                 <p>~52% of adults use chatbots for psychological support, with <b><i>1M (of 800m ChatGPT) weekly users discussing suicide</i></b>. 
                 These tools <i>feel so useful</i> they&apos;ve elicited likely more expressed strife, introspection, insecurity, and agita in the last 
-                3 years than all prior periods combined, when a pen & paper or Reddit thread was our best tool. In turn, the model companies have 
-                inadvertently collected the <b><i>greatest recorded distillation of human's psychological condition ever</i></b>, yet similar to analog 
+                3 years than all prior periods combined, when a pen and paper or Reddit thread was our best tool. In turn, the model companies have 
+                inadvertently collected the <b><i>greatest recorded distillation of human&apos;s psychological condition ever</i></b>, yet similar to analog 
                 journals, it all remains siloed (understandably). </p>
                 <br></br>
                 <p>There&apos;s likely some unknown risk to so much of humanity deferring emotional support to chatbots and AI companions lacking nervous systems yet that 
                   never misunderstand, feel burdened, disclose, or critique. There&apos;s no indication this phenomenon will undo itself. </p>
                 <br></br>
                 <p>While we build tools or AI systems that may actually improve intra-human connection - <b>The Socha Project</b> was created as a 
-                central repository to make it as easy & rewarding as possible to unearth these emotional entries for others to experience 
-                & benefit from in the meantime, rather than sit idly & underutilized in a data center.</p>
+                central repository to make it as easy  &amp; rewarding as possible to unearth these emotional entries for others to experience 
+                &amp; benefit from in the meantime, rather than sit idly  &amp; underutilized in a data center.</p>
               </div>
             </section>
 
@@ -1297,10 +1297,10 @@ useEffect(() => { themeRef.current = theme; }, [theme]);
             {/* SECTION 2 */}
             <section style={{ marginTop: 20 }}>
               <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 6 }}>
-                Plutchik's Wheel of Emotions (8 Primary → 32 emotions)
+                Plutchik&apos;s Wheel of Emotions (8 Primary → 32 emotions)
               </div>
               <div style={{ fontSize: 14, lineHeight: 1.55, opacity: 0.9 }}>
-                Next, every submission is classified & coded using psychologist <b>Robert Plutchik&apos;s Wheel of Emotions</b>, 
+                Next, every submission is classified  &amp; coded using psychologist <b>Robert Plutchik&apos;s Wheel of Emotions</b>, 
                 which distills the human experience into 8 primary emotions, and 24 to 32 nested, secondaries representing combinations, 
                 deviations, or various intensities within the primary emotion.
               </div>
@@ -1309,7 +1309,7 @@ useEffect(() => { themeRef.current = theme; }, [theme]);
             {/* SECTION 3 */}
             <section style={{ marginTop: 20, paddingBottom: 6 }}>
               <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 6 }}>
-                3) Methodology (OCR → classification → visualization)
+                Classification  &amp; visualization
               </div>
               <div style={{ fontSize: 14, lineHeight: 1.55, opacity: 0.9 }}>
               Lastly, we project all entries on a force directed graph, using a physics simulation where emotionally resonant 
