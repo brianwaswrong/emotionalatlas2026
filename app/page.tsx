@@ -720,7 +720,7 @@ useEffect(() => { themeRef.current = theme; }, [theme]);
           padding: "8px 16px",
           background: "transparent",
           backdropFilter: "none",
-          boxshadow: 'none',
+          boxShadow: 'none',
           // WebkitBackdropFilter: "blur(4px)",
         }}
       >
@@ -1227,7 +1227,7 @@ useEffect(() => { themeRef.current = theme; }, [theme]);
               <div>
                 <div style={{ fontSize: 18, fontWeight: 600, fontFamily: `"Crimson Pro", Georgia, Times New Roman, sans-serif`, letterSpacing: 0.2 }}>About the Project</div>
                 <div style={{ fontSize: 12, opacity: 0.72, marginTop: 3,fontStyle:'italic' }}>
-                  An emotional atlas of how we talk to AI and ourselves.
+                  An emotional atlas mapping how we talk to AI and ourselves.
                 </div>
               </div>
               
@@ -1273,7 +1273,7 @@ useEffect(() => { themeRef.current = theme; }, [theme]);
                 inadvertently collected the <b><i>greatest recorded distillation of human's psychological condition ever</i></b>, yet similar to analog 
                 journals, it all remains siloed (understandably). </p>
                 <br></br>
-                <p>There’s likely some unknown risk to so much of humanity deferring emotional support to chatbots and AI companions lacking nervous systems yet that 
+                <p>There&apos;s likely some unknown risk to so much of humanity deferring emotional support to chatbots and AI companions lacking nervous systems yet that 
                   never misunderstand, feel burdened, disclose, or critique. There’s no indication this phenomenon will undo itself. </p>
                 <br></br>
                 <p>While we build tools or AI systems that may actually improve intra-human connection - <b>The Socha Project</b> was created as a 
@@ -1288,7 +1288,7 @@ useEffect(() => { themeRef.current = theme; }, [theme]);
               </div>
               <div style={{ fontSize: 14, lineHeight: 1.55, opacity: 0.9 }}>
               To map thousands of journal entries and AI chatbot messages in a coherent, navigable way, 
-              we designed a model to score each submission first using James Russell’s <b>Valence-Arousal Circumplex Model</b>, 
+              we designed a model to score each submission first using James Russell&apos;s <b>Valence-Arousal Circumplex Model</b>, 
               a two-dimensional framework plotting all entries on an x/y axis based on <i><b>Valence </b> (pleasant vs. unpleasant)</i> and 
               <i><b>Arousal (intensity/activation).</b></i>
               </div>
@@ -1300,7 +1300,7 @@ useEffect(() => { themeRef.current = theme; }, [theme]);
                 Plutchik's Wheel of Emotions (8 Primary → 32 emotions)
               </div>
               <div style={{ fontSize: 14, lineHeight: 1.55, opacity: 0.9 }}>
-                Next, every submission is classified & coded using psychologist <b>Robert Plutchik’s Wheel of Emotions</b>, 
+                Next, every submission is classified & coded using psychologist <b>Robert Plutchik&apos;s Wheel of Emotions</b>, 
                 which distills the human experience into 8 primary emotions, and 24 to 32 nested, secondaries representing combinations, 
                 deviations, or various intensities within the primary emotion.
               </div>

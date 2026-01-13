@@ -157,6 +157,9 @@ export function DetailPanel({
   );
   
   const showImg = !!entry.imageUrl;
+  const [imgLoaded, setImgLoaded] = useState(false);
+  const shouldShowRealImg = showImg && entry.imageUrl && imgLoaded;
+  const [showImageViewer, setShowImageViewer] = useState(false);
 
   const EmotionPill = ({ label }: { label: string }) => {
     const c = emotionColor(
@@ -203,8 +206,6 @@ export function DetailPanel({
     );
   };  
 
-  const [imgLoaded, setImgLoaded] = useState(false);
-
   useEffect(() => {
     setImgLoaded(false);
     if (!entry?.imageUrl) return;
@@ -215,9 +216,7 @@ export function DetailPanel({
     img.src = entry.imageUrl;
   }, [entry?.id, entry?.imageUrl]);
 
-  const shouldShowRealImg = showImg && entry.imageUrl && imgLoaded;
-  const [showImageViewer, setShowImageViewer] = useState(false);
-
+  
   return (
   
     <div
