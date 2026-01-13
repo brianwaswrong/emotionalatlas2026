@@ -123,6 +123,9 @@ export function DetailPanel({
   const panelBg =
     theme === 'dark' ? 'rgba(10,12,16,0.92)' : 'rgba(255,255,255,0.92)';
 
+  const [imgLoaded, setImgLoaded] = useState(false);
+  const [showImageViewer, setShowImageViewer] = useState(false);
+
   if (!entry) {
     return (
       <div
@@ -157,9 +160,17 @@ export function DetailPanel({
   );
   
   const showImg = !!entry.imageUrl;
-  const [imgLoaded, setImgLoaded] = useState(false);
   const shouldShowRealImg = showImg && entry.imageUrl && imgLoaded;
-  const [showImageViewer, setShowImageViewer] = useState(false);
+
+  useEffect(() => {
+    setImgLoaded(false);
+    if (!entry?.imageUrl) return;
+
+    const img = new Image();
+    img.onload = () => setImgLoaded(true);
+    img.onerror = () => setImgLoaded(true); // fail “open” so you don’t spinner forever
+    img.src = entry.imageUrl;
+  }, [entry?.id, entry?.imageUrl]);
 
   const EmotionPill = ({ label }: { label: string }) => {
     const c = emotionColor(
@@ -205,17 +216,6 @@ export function DetailPanel({
       </span>
     );
   };  
-
-  useEffect(() => {
-    setImgLoaded(false);
-    if (!entry?.imageUrl) return;
-
-    const img = new Image();
-    img.onload = () => setImgLoaded(true);
-    img.onerror = () => setImgLoaded(true); // fail “open” so you don’t spinner forever
-    img.src = entry.imageUrl;
-  }, [entry?.id, entry?.imageUrl]);
-
   
   return (
   
