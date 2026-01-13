@@ -354,7 +354,7 @@ export function DetailPanel({
               zIndex: 3,
             }}
           >
-            <EmotionPill label={entry.emotion} />
+            {entry.emotion ? <EmotionPill label={entry.emotion} /> : null}
             {entry.location ? (
               <span
                 style={{
@@ -395,40 +395,58 @@ export function DetailPanel({
           </div>
 
           <div style={{ display: 'flex', gap: 10 }}>
+          <div
+            style={{
+              flex: 1,
+              borderRadius: 14,
+              border: `1px solid ${ui.border}`,
+              background: ui.card2,
+              padding: 10,
+            }}
+          >
             <div
               style={{
-                flex: 1,
-                borderRadius: 14,
-                border: `1px solid ${ui.border}`,
-                background: ui.card2,
-                padding: 10,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                fontSize: 11,
+                color: ui.fg2,
               }}
             >
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  fontSize: 11,
-                  color: ui.fg2,
-                }}
-              >
-                <IconPulse /> Valence
-              </div>
-              <div
-                style={{
-                  fontSize: 18,
-                  fontWeight: 760,
-                  marginTop: 6,
-                  color: ui.fg,
-                }}
-              >
-                {entry.valence.toFixed(2)}
-              </div>
-              <div style={{ fontSize: 11, color: ui.fg2, marginTop: 4 }}>
-                {entry.valence >= 0 ? 'Positive' : 'Negative'}
-              </div>
+              <IconPulse /> Valence
             </div>
+
+            {typeof entry.valence === 'number' ? (
+              <>
+                <div
+                  style={{
+                    fontSize: 18,
+                    fontWeight: 760,
+                    marginTop: 6,
+                    color: ui.fg,
+                  }}
+                >
+                  {entry.valence.toFixed(2)}
+                </div>
+
+                <div style={{ fontSize: 11, color: ui.fg2, marginTop: 4 }}>
+                  {entry.valence >= 0 ? 'Positive' : 'Negative'}
+                </div>
+              </>
+            ) : (
+              <div
+                style={{
+                  fontSize: 14,
+                  marginTop: 10,
+                  color: ui.fg2,
+                  fontStyle: 'italic',
+                }}
+              >
+                —
+              </div>
+            )}
+          </div>
+
 
             <div
               style={{
@@ -450,20 +468,35 @@ export function DetailPanel({
               >
                 <IconPulse /> Arousal
               </div>
+              {typeof entry.arousal === 'number' ? (
+              <>
+                <div
+                  style={{
+                    fontSize: 18,
+                    fontWeight: 760,
+                    marginTop: 6,
+                    color: ui.fg,
+                  }}
+                >
+                  {entry.arousal.toFixed(2)}
+                </div>
+
+                <div style={{ fontSize: 11, color: ui.fg2, marginTop: 4 }}>
+                  {entry.arousal >= 0 ? 'Positive' : 'Negative'}
+                </div>
+              </>
+            ) : (
               <div
                 style={{
-                  fontSize: 20,
-                  fontWeight: 760,
-                  marginTop: 6,
-                  color: ui.fg,
+                  fontSize: 14,
+                  marginTop: 10,
+                  color: ui.fg2,
+                  fontStyle: 'italic',
                 }}
               >
-                {entry.arousal.toFixed(2)}
+                —
               </div>
-              <div style={{ fontSize: 12, color: ui.fg2, marginTop: 4 }}>
-                {entry.arousal >= 0 ? 'High Energy' : 'Low Energy'}
-              </div>
-            </div>
+            )}
           </div>
 
           <div
@@ -521,7 +554,6 @@ export function DetailPanel({
     </div>
   )}
 
-
   </div>
-  );
-}
+</div>
+)}
