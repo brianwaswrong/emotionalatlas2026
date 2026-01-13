@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Entry } from '@/lib/types';
-import { makeMockEntries } from '@/lib/simulate';
+// import { makeMockEntries } from '@/lib/simulate';
 import { ensureViewportCentered, type Viewport } from '@/canvas/viewport';
 import { clamp, hashColor, fmtDateShort } from '@/lib/utils';
 import { drawScene, entryAnchorWorld } from '@/canvas/draw';
