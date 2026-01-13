@@ -394,7 +394,7 @@ export function DetailPanel({
             <IconCal /> {fmtDate(entry.createdAt)}
           </div>
 
-          <div style={{ display: 'flex', gap: 10 }}>
+        <div style={{ display: 'flex', gap: 10 }}>
           <div
             style={{
               flex: 1,
@@ -485,19 +485,20 @@ export function DetailPanel({
                   {entry.arousal >= 0 ? 'Positive' : 'Negative'}
                 </div>
               </>
-            ) : (
-              <div
-                style={{
-                  fontSize: 14,
-                  marginTop: 10,
-                  color: ui.fg2,
-                  fontStyle: 'italic',
-                }}
-              >
-                —
-              </div>
-            )}
+              ) : (
+                <div
+                  style={{
+                    fontSize: 14,
+                    marginTop: 10,
+                    color: ui.fg2,
+                    fontStyle: 'italic',
+                  }}
+                >
+                  —
+                </div>
+              )}
           </div>
+        </div>
 
           <div
             style={{
@@ -553,7 +554,5 @@ export function DetailPanel({
       />
     </div>
   )}
-
   </div>
-</div>
 )}
