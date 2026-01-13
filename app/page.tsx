@@ -798,7 +798,7 @@ useEffect(() => { themeRef.current = theme; }, [theme]);
                     onChange={(e) => setSearch(e.target.value)}
                     placeholder="Search entries via emotion, city, time…"
                     style={{
-                      width: 'min(420px, 48vw)',
+                      width: 'min(300px, 40vw)',
                       border: 'none',
                       outline: 'none',
                       background: 'transparent',
@@ -831,7 +831,7 @@ useEffect(() => { themeRef.current = theme; }, [theme]);
                   }}
                   aria-label="Toggle theme"
                 >
-                  {theme === 'dark' ? '☼  Light Mode' : '☾⋆ Dark Mode'}
+                  {theme === 'dark' ? '☼  Light' : '☾⋆ Dark'}
                 </button>
               </div>
           </div>
