@@ -1268,13 +1268,13 @@ useEffect(() => { themeRef.current = theme; }, [theme]);
               </div>
               <div style={{ fontSize: 14, lineHeight: 1.55, opacity: 0.9 }}>
                 <p>~52% of adults use chatbots for psychological support, with <b><i>1M (of 800m ChatGPT) weekly users discussing suicide</i></b>. 
-                These tools <i>feel so useful</i> they’ve elicited likely more expressed strife, introspection, insecurity, and agita in the last 
+                These tools <i>feel so useful</i> they&apos;ve elicited likely more expressed strife, introspection, insecurity, and agita in the last 
                 3 years than all prior periods combined, when a pen & paper or Reddit thread was our best tool. In turn, the model companies have 
                 inadvertently collected the <b><i>greatest recorded distillation of human's psychological condition ever</i></b>, yet similar to analog 
                 journals, it all remains siloed (understandably). </p>
                 <br></br>
                 <p>There&apos;s likely some unknown risk to so much of humanity deferring emotional support to chatbots and AI companions lacking nervous systems yet that 
-                  never misunderstand, feel burdened, disclose, or critique. There’s no indication this phenomenon will undo itself. </p>
+                  never misunderstand, feel burdened, disclose, or critique. There&apos;s no indication this phenomenon will undo itself. </p>
                 <br></br>
                 <p>While we build tools or AI systems that may actually improve intra-human connection - <b>The Socha Project</b> was created as a 
                 central repository to make it as easy & rewarding as possible to unearth these emotional entries for others to experience 
