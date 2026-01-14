@@ -411,7 +411,7 @@ export function SubmitModal({
             borderBottom: '1px solid rgba(255,255,255,0.10)',
           }}
         >
-          <div style={{ fontWeight: 760 }}>New submission</div>
+          <div style={{ fontWeight: 760 }}>Submit a journal entry or AI conversation</div>
           <button
             onClick={onClose}
             style={{

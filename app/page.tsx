@@ -19,6 +19,15 @@ export default function App() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rafRef = useRef<number | null>(null);
 
+  const pointersRef = useRef(new Map<number, { x: number; y: number }>());
+  const pinchRef = useRef<{ dist: number; scale: number } | null>(null);
+
+  const dist = (a: {x:number;y:number}, b:{x:number;y:number}) =>
+  Math.hypot(a.x - b.x, a.y - b.y);
+
+  const mid = (a:{x:number;y:number}, b:{x:number;y:number}) =>
+    ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+
   type NodeState = {
     x: number;
     y: number;
@@ -30,6 +39,28 @@ export default function App() {
   
   const nodeStateRef = useRef<Map<string, NodeState>>(new Map());
   const relaxRafRef = useRef<number | null>(null);  
+
+  // Mobile detection for header behavior
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 640px)");
+    const onChange = () => setIsMobile(mq.matches);
+    onChange();
+    mq.addEventListener?.("change", onChange);
+    return () => mq.removeEventListener?.("change", onChange);
+  }, []);
+
+  const [isWide, setIsWide] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 980px)");
+    const apply = () => setIsWide(mq.matches);
+    apply();
+    mq.addEventListener?.("change", apply);
+    return () => mq.removeEventListener?.("change", apply);
+  }, []);
+
 
   // Modal state for the About page
   const [aboutOpen, setAboutOpen] = useState(false);
@@ -543,6 +574,14 @@ useEffect(() => { themeRef.current = theme; }, [theme]);
 
     c.setPointerCapture(ev.pointerId);
 
+    pointersRef.current.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+
+    // if second finger goes down, initialize pinch
+    if (pointersRef.current.size === 2) {
+      const pts = Array.from(pointersRef.current.values());
+      pinchRef.current = { dist: dist(pts[0], pts[1]), scale: vpRef.current.scale };
+    }
+
     dragRef.current = {
       active: true,
       moved: false,
@@ -560,10 +599,47 @@ useEffect(() => { themeRef.current = theme; }, [theme]);
   const onPointerMove = (ev: React.PointerEvent<HTMLCanvasElement>) => {
     const c = canvasRef.current;
     if (!c) return;
-
     const drag = dragRef.current;
 
-    
+    // track pointer
+    if (pointersRef.current.has(ev.pointerId)) {
+      pointersRef.current.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+    }
+
+    // --- PINCH ZOOM (2 fingers) ---
+    if (pointersRef.current.size === 2 && pinchRef.current) {
+      const pts = Array.from(pointersRef.current.values());
+      const d0 = pinchRef.current.dist;
+      const d1 = dist(pts[0], pts[1]);
+      if (d0 > 0 && d1 > 0) {
+        const zoom = d1 / d0;
+
+        ensureViewportCentered(c, vpRef.current);
+
+        const rect = c.getBoundingClientRect();
+        const dpr = Math.max(1, window.devicePixelRatio || 1);
+        const m = mid(pts[0], pts[1]);
+        const px = (m.x - rect.left) * dpr;
+        const py = (m.y - rect.top) * dpr;
+
+        const vp = vpRef.current;
+        const worldX = (px - vp.tx) / vp.scale;
+        const worldY = (py - vp.ty) / vp.scale;
+
+        vp.scale = clamp(pinchRef.current.scale * zoom, 22, 1400);
+
+        // keep midpoint under fingers
+        const nextPx = worldX * vp.scale + vp.tx;
+        const nextPy = worldY * vp.scale + vp.ty;
+        vp.tx += px - nextPx;
+        vp.ty += py - nextPy;
+
+        requestDraw();
+      }
+
+      // do NOT pan/hover while pinching
+      return;
+    }
 
     if (drag?.active) {
       const dist = Math.hypot(ev.clientX - drag.x, ev.clientY - drag.y);
@@ -625,6 +701,9 @@ useEffect(() => { themeRef.current = theme; }, [theme]);
     const c = canvasRef.current;
     if (!c) return;
 
+    pointersRef.current.delete(ev.pointerId);
+    if (pointersRef.current.size < 2) pinchRef.current = null;
+
     try {
       c.releasePointerCapture(ev.pointerId);
     } catch {}
@@ -662,6 +741,9 @@ useEffect(() => { themeRef.current = theme; }, [theme]);
   const onPointerCancel = (ev: React.PointerEvent<HTMLCanvasElement>) => {
     const c = canvasRef.current;
     if (!c) return;
+
+    pointersRef.current.delete(ev.pointerId);
+    if (pointersRef.current.size < 2) pinchRef.current = null;
 
     try {
       c.releasePointerCapture(ev.pointerId);
@@ -714,179 +796,358 @@ useEffect(() => { themeRef.current = theme; }, [theme]);
       {/* Top Bar */}
       <header
         style={{
-          position: "relative",
+          position: "sticky",
           top: 0,
           zIndex: 20,
-          padding: "8px 16px",
+          padding: isMobile ? "10px 12px" : "8px 16px",
           background: "transparent",
           backdropFilter: "none",
-          boxShadow: 'none',
-          // WebkitBackdropFilter: "blur(4px)",
+          boxShadow: "none",
+
+          // CRITICAL: don't block canvas dragging under header
+          pointerEvents: "none",
         }}
       >
         <div
           style={{
-            display: "grid",
-            gridTemplateColumns: "1fr auto 1fr",
-            alignItems: "center",
-            gap: 12,
             margin: "0 auto",
             background: "transparent",
+            pointerEvents: "auto",
+            display: "flex",
+            flexDirection: "column",
+            gap: isMobile ? 10 : 8,
           }}
         >
-          {/* LEFT: Title */}
-          <div style={{ justifySelf: "start", minWidth: 0,background: "transparent", }}>
-            <div style={{ color: ui.fg, fontWeight: 600, fontFamily: `"Crimson Pro", Georgia, Times New Roman, sans-serif`, letterSpacing: 0.2, lineHeight: 1.1 }}>
-              The Socha Project
-            </div>
-            <div style={{ color: ui.fg, fontSize: 12, fontStyle: 'italic', fontFamily: `"Helvetica Neue", Helvetica, Arial, sans-serif`, opacity: 0.72, marginTop: 2 }}>
-              How we talk to AI &amp; ourselves
-            </div>
-          </div>
-
-          {/* CENTER: Log + Search + Toggle */}
-          <div
-            style={{
-              justifySelf: "center",
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              background: "transparent",
-            }}
-          >
+          {isWide ? (
+            // ===== DESKTOP: single row =====
             <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr auto 1fr",
+                alignItems: "center",
+                gap: 12,
+                minWidth: 0,
+              }}
+            >
+              {/* LEFT: Title */}
+              <div style={{ justifySelf: "start", minWidth: 0 }}>
+                {/* LEFT: Title */}
+                <div style={{ minWidth: 0 }}>
+                    <div
+                      style={{
+                        color: ui.fg,
+                        fontWeight: 600,
+                        fontFamily: `"Crimson Pro", Georgia, Times New Roman, serif`,
+                        letterSpacing: 0.2,
+                        lineHeight: 1.1,
+                        fontSize: isMobile ? 16 : 18,
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      The Socha Project
+                    </div>
+                    <div
+                      style={{
+                        color: ui.fg,
+                        fontSize: isMobile ? 11 : 12,
+                        fontStyle: "italic",
+                        fontFamily: `"Helvetica Neue", Helvetica, Arial, sans-serif`,
+                        opacity: 0.72,
+                        marginTop: 2,
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      How we talk to AI &amp; ourselves
+                    </div>
+                  </div>
+              </div>
+
+              {/* CENTER: Log + Search + Toggle */}
+              <div
                 style={{
-                  pointerEvents: 'auto',
-                  display: 'flex',
-                  alignItems: 'right',
-                  textAlign: 'right',
+                  justifySelf: "center",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  minWidth: 0,
+                }}
+              >
+                  {/* Log */}
+                  <button
+                    onClick={() => setIsDbOpen(true)}
+                    style={{
+                      flex: "0 0 auto",
+                      border: `1px solid ${ui.border}`,
+                      background: ui.card,
+                      color: ui.fg,
+                      borderRadius: 999,
+                      padding: "8px 12px",
+                      cursor: "pointer",
+                      fontFamily: `"Helvetica Neue", Helvetica, Arial, sans-serif`,
+                      fontSize: 13,
+                      boxShadow: `0 10px 26px ${ui.shadow}`,
+                      backdropFilter: isMobile ? "blur(10px)" : "blur(14px)",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    Log
+                  </button>
+
+                  {/* Search (flexes; doesn’t overflow on mobile) */}
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      padding: "8px 10px",
+                      borderRadius: 999,
+                      background: ui.card,
+                      border: `1px solid ${ui.border}`,
+                      boxShadow: `0 10px 26px ${ui.shadow}`,
+                      backdropFilter: isMobile ? "blur(10px)" : "blur(14px)",
+                      flex: isMobile ? "1 1 auto" : "0 1 auto",
+                      minWidth: 0,
+                      maxWidth: isMobile ? "100%" : "min(520px, 52vw)",
+                    }}
+                  >
+                    <input
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      placeholder="Search entries via emotion, city, time…"
+                      style={{
+                        width: "100%",
+                        border: "none",
+                        outline: "none",
+                        background: "transparent",
+                        color: ui.fg,
+                        fontSize: 13,
+                        minWidth: 0,
+                      }}
+                    />
+                    <div style={{ fontSize: 12, opacity: 0.7, whiteSpace: "nowrap" }}>
+                      {entries.length}/{dbEntries.length}
+                    </div>
+                  </div>
+
+                  {/* Theme toggle */}
+                  <button
+                    onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
+                    style={{
+                      flex: "0 0 auto",
+                      width: isMobile ? 92 : 108,
+                      height: 36,
+                      borderRadius: 999,
+                      border: `1px solid ${ui.border}`,
+                      background: ui.card,
+                      color: ui.fg,
+                      cursor: "pointer",
+                      boxShadow: `0 10px 26px ${ui.shadow}`,
+                      backdropFilter: isMobile ? "blur(10px)" : "blur(14px)",
+                      fontSize: 12,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      padding: 0,
+                      whiteSpace: "nowrap",
+                    }}
+                    aria-label="Toggle theme"
+                  >
+                    {theme === "dark" ? "☼ Light" : "☾⋆ Dark"}
+                  </button>
+              </div>
+
+              {/* RIGHT: About */}
+              <div style={{ justifySelf: "end" }}>
+                {/* RIGHT: About */}
+                <button
+                    onClick={() => setAboutOpen(true)}
+                    style={{
+                      color: ui.fg,
+                      fontSize: 13,
+                      padding: isMobile ? "8px 10px" : "8px 10px",
+                      borderRadius: 999,
+                      border: `0px solid ${ui.border}`,
+                      background: 'transparent',
+                      cursor: "pointer",
+                      boxShadow: `0 10px 26px ${ui.shadow}`,
+                      backdropFilter: isMobile ? "blur(10px)" : "blur(14px)",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    About
+                  </button>
+              </div>
+            </div>
+          ) : (
+            // ===== MOBILE/TABLET: two rows =====
+            <>
+              {/* ROW 1: Title + About */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "baseline",
+                  justifyContent: "space-between",
+                  gap: 12,
+                  minWidth: 0,
+                }}
+              >
+                <div style={{ minWidth: 0 }}>
+                  {/* LEFT: Title */}
+                  <div style={{ minWidth: 0 }}>
+                    <div
+                      style={{
+                        color: ui.fg,
+                        fontWeight: 600,
+                        fontFamily: `"Crimson Pro", Georgia, Times New Roman, serif`,
+                        letterSpacing: 0.2,
+                        lineHeight: 1.1,
+                        fontSize: isMobile ? 16 : 18,
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      The Socha Project
+                    </div>
+                    <div
+                      style={{
+                        color: ui.fg,
+                        fontSize: isMobile ? 11 : 12,
+                        fontStyle: "italic",
+                        fontFamily: `"Helvetica Neue", Helvetica, Arial, sans-serif`,
+                        opacity: 0.72,
+                        marginTop: 2,
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      How we talk to AI &amp; ourselves
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  {/* RIGHT: About */}
+                  <button
+                    onClick={() => setAboutOpen(true)}
+                    style={{
+                      color: ui.fg,
+                      fontSize: 13,
+                      padding: isMobile ? "8px 10px" : "8px 10px",
+                      borderRadius: 999,
+                      border: `0px solid ${ui.border}`,
+                      background: 'transparent',
+                      cursor: "pointer",
+                      boxShadow: `0 10px 26px ${ui.shadow}`,
+                      backdropFilter: isMobile ? "blur(10px)" : "blur(14px)",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    About
+                  </button>
+                </div>
+              </div>
+
+              {/* ROW 2: Log + Search + Toggle */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
                   gap: 10,
                 }}
               >
-                <button
-                  onClick={() => setIsDbOpen(true)}
-                  style={{
-                    border: `1px solid ${ui.border}`,
-                    background: ui.card,
-                    color: ui.fg,
-                    borderRadius: 999,
-                    padding: '8px 12px',
-                    cursor: 'pointer',
-                    fontFamily: `"Helvetica Neue", Helvetica, Arial, sans-serif`,
-                    fontSize: 13,
-                    boxShadow: `0 10px 26px ${ui.shadow}`,
-                    backdropFilter: 'blur(14px)',
-                  }}
-                >
-                  Log
-                </button>
-
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    padding: '8px 10px',
-                    borderRadius: 999,
-                    background: 'rgba(255,255,255,0.06)',
-                    border: '1px solid rgba(255,255,255,0.10)',
-                    boxShadow: '0 10px 26px rgba(0,0,0,0.38)',
-                  }}
-                >
-                  <input
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Search entries via emotion, city, time…"
+                  {/* Log */}
+                  <button
+                    onClick={() => setIsDbOpen(true)}
                     style={{
-                      width: 'min(300px, 40vw)',
-                      border: 'none',
-                      outline: 'none',
-                      background: 'transparent',
+                      flex: "0 0 auto",
+                      border: `1px solid ${ui.border}`,
+                      background: ui.card,
                       color: ui.fg,
+                      borderRadius: 999,
+                      padding: "8px 12px",
+                      cursor: "pointer",
+                      fontFamily: `"Helvetica Neue", Helvetica, Arial, sans-serif`,
                       fontSize: 13,
+                      boxShadow: `0 10px 26px ${ui.shadow}`,
+                      backdropFilter: isMobile ? "blur(10px)" : "blur(14px)",
+                      whiteSpace: "nowrap",
                     }}
-                  />
-                  <div style={{ fontSize: 12, opacity: 0.7 }}>
-                    {entries.length}/{dbEntries.length}
+                  >
+                    Log
+                  </button>
+
+                  {/* Search (flexes; doesn’t overflow on mobile) */}
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      padding: "8px 10px",
+                      borderRadius: 999,
+                      background: ui.card,
+                      border: `1px solid ${ui.border}`,
+                      boxShadow: `0 10px 26px ${ui.shadow}`,
+                      backdropFilter: isMobile ? "blur(10px)" : "blur(14px)",
+                      flex: isMobile ? "1 1 auto" : "0 1 auto",
+                      minWidth: 0,
+                      maxWidth: isMobile ? "100%" : "min(520px, 52vw)",
+                    }}
+                  >
+                    <input
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      placeholder="Search entries via emotion, city, time…"
+                      style={{
+                        width: "100%",
+                        border: "none",
+                        outline: "none",
+                        background: "transparent",
+                        color: ui.fg,
+                        fontSize: 13,
+                        minWidth: 0,
+                      }}
+                    />
+                    <div style={{ fontSize: 12, opacity: 0.7, whiteSpace: "nowrap" }}>
+                      {entries.length}/{dbEntries.length}
+                    </div>
                   </div>
-                </div>
-                <button
-                  onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
-                  style={{
-                    margin: 5,
-                    width: 108,
-                    height: 36,
-                    borderRadius: 999,
-                    border: `1px solid ${ui.border}`,
-                    background: ui.card,
-                    color: ui.fg,
-                    cursor: 'pointer',
-                    boxShadow: '0 10px 26px rgba(0,0,0,0.28)',
-                    backdropFilter: 'blur(14px)',
-                    fontSize: 12,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    padding: 0,
-                  }}
-                  aria-label="Toggle theme"
-                >
-                  {theme === 'dark' ? '☼  Light' : '☾⋆ Dark'}
-                </button>
+
+                  {/* Theme toggle */}
+                  <button
+                    onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
+                    style={{
+                      flex: "0 0 auto",
+                      width: isMobile ? 92 : 108,
+                      height: 36,
+                      borderRadius: 999,
+                      border: `1px solid ${ui.border}`,
+                      background: ui.card,
+                      color: ui.fg,
+                      cursor: "pointer",
+                      boxShadow: `0 10px 26px ${ui.shadow}`,
+                      backdropFilter: isMobile ? "blur(10px)" : "blur(14px)",
+                      fontSize: 12,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      padding: 0,
+                      whiteSpace: "nowrap",
+                    }}
+                    aria-label="Toggle theme"
+                  >
+                    {theme === "dark" ? "☼ Light" : "☾⋆ Dark"}
+                  </button>
               </div>
-          </div>
-
-          {/* RIGHT: About */}
-          <div style={{ justifySelf: "end",background: "transparent",}}>
-          <button
-            onClick={() => setAboutOpen(true)}
-            style={{
-              color: ui.fg,
-              fontSize: 13,
-              padding: "8px 10px",
-              borderRadius: 10,
-              // border: `1px solid ${ui.border}`,
-              background: "transparent",
-              backdropFilter: "blur(10px)",
-              cursor: "pointer",
-            }}
-          >
-            About
-          </button>
-          </div>
+            </>
+          )}
         </div>
-
-        {/* MOBILE: stack center controls on a second row */}
-        <div
-          style={{
-            display: "none",
-            marginTop: 10,
-          }}
-          className="topbar-mobile"
-        >
-          {/* optional: put Search + Toggle here on mobile */}
-        </div>
-
-        <style jsx>{`
-          @media (max-width: 720px) {
-            header > div > div {
-              grid-template-columns: 1fr auto;
-              grid-template-areas:
-                "left right"
-                "center center";
-            }
-            header > div > div > :nth-child(1) {
-              grid-area: left;
-            }
-            header > div > div > :nth-child(2) {
-              grid-area: center;
-              justify-self: stretch;
-            }
-            header > div > div > :nth-child(3) {
-              grid-area: right;
-            }
-          }
-        `}</style>
       </header>
 
       {/* <div
@@ -1027,6 +1288,7 @@ useEffect(() => { themeRef.current = theme; }, [theme]);
             height: "100%",
             display: "block",
             cursor: "grab",
+            touchAction: "none", // CRITICAL: allows pointer events to handle pan/zoom        
           }}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
@@ -1265,18 +1527,22 @@ useEffect(() => { themeRef.current = theme; }, [theme]);
                 Background
               </div>
               <div style={{ fontSize: 14, lineHeight: 1.55, opacity: 0.9 }}>
-                <p>~52% of adults use chatbots for psychological support, with <b><i>1M (of 800m ChatGPT) weekly users discussing suicide</i></b>. 
-                These tools <i>feel so useful</i> they&apos;ve elicited likely more expressed strife, introspection, insecurity, and agita in the last 
-                3 years than all prior periods combined, when a pen and paper or Reddit thread was our best tool. In turn, the model companies have 
-                inadvertently collected the <b><i>greatest recorded distillation of human&apos;s psychological condition ever</i></b>, yet similar to analog 
-                journals, it all remains siloed (understandably). </p>
+                <p>The Socha Project is a public repository capturing how we talk to ourselves & AI through journal entries and 
+                  shared chats.</p>
                 <br></br>
-                <p>There&apos;s likely some unknown risk to so much of humanity deferring emotional support to chatbots and AI companions lacking nervous systems yet that 
-                  never misunderstand, feel burdened, disclose, or critique. There&apos;s no indication this phenomenon will undo itself. </p>
+                <p>~52% of adults use chatbots for psychological support <b><i>(1M of 800m ChatGPT weekly users discuss suicide).</i></b> 
+                  These tools feel so useful they&apos;ve likely captured more expressed emotion, introspection, insecurity &amp; agita
+                   in the last 3 years than all prior periods combined, when our best tools were pen, paper, and Reddit. 
+                   The model companies hold the <i>greatest  distillation of human psychological suffering ever</i>, yet similar 
+                   to analog journals, it all remains siloed.</p>
                 <br></br>
-                <p>While we build tools or AI systems that may actually improve intra-human connection - <b>The Socha Project</b> was created as a 
-                central repository to make it as easy  &amp; rewarding as possible to unearth these emotional entries for others to experience 
-                &amp; benefit from in the meantime, rather than sit idly  &amp; underutilized in a data center.</p>
+                <p>We don&apos;t yet know the full risk of so much of humanity deferring emotional support to chatbots and AI companions 
+                  that lack nervous systems and never misunderstand, critique, or feel burdened. There&apos;s no indication this trend
+                  will undo itself. </p>
+                <br></br>
+                <p>In time, we&apos;ll build tools or AI systems that actually improve interhuman connection. Til then, <b>the emotional 
+                  depth exhausted in AI-human interactions are a wasted resource, sitting idly in data centers unless unearthed to improve 
+                  interhuman friction and understanding.</b> This project strives to make this as easy &amp; rewarding as possible.</p>
               </div>
             </section>
 
@@ -1285,10 +1551,10 @@ useEffect(() => { themeRef.current = theme; }, [theme]);
                 Valence &amp; Arousal Circumplex (the 2D space)
               </div>
               <div style={{ fontSize: 14, lineHeight: 1.55, opacity: 0.9 }}>
-              To map thousands of journal entries and AI chatbot messages in a coherent, navigable way, 
+              To map thousands of journal entries and AI chatbot messages in a navigable way, 
               we designed a model to score each submission first using James Russell&apos;s <b>Valence-Arousal Circumplex Model</b>, 
-              a two-dimensional framework plotting all entries on an x/y axis based on <i><b>Valence </b> (pleasant vs. unpleasant)</i> and 
-              <i><b>Arousal (intensity/activation).</b></i>
+              a 2D framework plotting all entries on x/y axes based on <i><b>Valence </b> (pleasant vs. unpleasant emotion detected)</i> and 
+              <i><b> Arousal (intensity/activation).</b></i>
               </div>
             </section>
 
@@ -1299,8 +1565,8 @@ useEffect(() => { themeRef.current = theme; }, [theme]);
               </div>
               <div style={{ fontSize: 14, lineHeight: 1.55, opacity: 0.9 }}>
                 Next, every submission is classified  &amp; coded using psychologist <b>Robert Plutchik&apos;s Wheel of Emotions</b>, 
-                which distills the human experience into 8 primary emotions, and 24 to 32 nested, secondaries representing combinations, 
-                deviations, or various intensities within the primary emotion.
+                which distills the human experience into 8 primary emotions, and usually 24 to 32 nested, secondaries representing combinations, 
+                deviations, or various intensities within the primary condition.
               </div>
             </section>
 
@@ -1310,9 +1576,9 @@ useEffect(() => { themeRef.current = theme; }, [theme]);
                 Classification  &amp; visualization
               </div>
               <div style={{ fontSize: 14, lineHeight: 1.55, opacity: 0.9 }}>
-              Lastly, we project all entries on a force directed graph, using a physics simulation where emotionally resonant 
-              entries or conversations exert some attraction and dissimilar entries exert some repulsion against each other, 
-              arranging disparate nodes from thousands of people in some sensible fashion.
+              Lastly, we project all entries in a force directed graph, using a physics simulation where emotionally resonant 
+              entries or conversations exert some attraction and dissimilar entries repulsion against each other, 
+              arranging disparate nodes from thousands of people in an atlas.
               </div>
             </section>
           </div>
