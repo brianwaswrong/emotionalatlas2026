@@ -983,7 +983,7 @@ useEffect(() => { themeRef.current = theme; }, [theme]);
               </div>
             </div>
           ) : (
-            // ===== MOBILE/TABLET: two rows =====
+          // ===== MOBILE/TABLET: two rows =====
             <>
               {/* ROW 1: Title + About */}
               <div
@@ -1400,6 +1400,7 @@ useEffect(() => { themeRef.current = theme; }, [theme]);
         entry={selected}
         onClose={() => setSelected(null)}
         theme={theme}
+        zIndex={isMobile ? 100 : 10}
       />
       <div
         style={{
@@ -1527,7 +1528,7 @@ useEffect(() => { themeRef.current = theme; }, [theme]);
                 Background
               </div>
               <div style={{ fontSize: 14, lineHeight: 1.55, opacity: 0.9 }}>
-                <p>The Socha Project is a public repository capturing how we talk to ourselves & AI through journal entries and 
+                <p>The Socha Project is a public repository capturing how we talk to ourselves and AI through journal entries and 
                   shared chats.</p>
                 <br></br>
                 <p>~52% of adults use chatbots for psychological support <b><i>(1M of 800m ChatGPT weekly users discuss suicide).</i></b> 

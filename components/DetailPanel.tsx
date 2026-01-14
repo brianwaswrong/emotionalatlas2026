@@ -78,14 +78,17 @@ function IconPulse() {
   );
 }
 
+
 export function DetailPanel({
   entry,
   onClose,
   theme,
+  zIndex = 10,
 }: {
   entry: Entry | null;
   onClose: () => void;
   theme: 'dark' | 'light';
+  zIndex?: number;
 }) {
   const open = !!entry;
 
@@ -224,7 +227,7 @@ export function DetailPanel({
       style={{
         position: "fixed",
         inset: 0,
-        zIndex: 10,
+        zIndex: zIndex,
         background: open ? "rgba(0,0,0,0.35)" : "rgba(0,0,0,0)",
         backdropFilter: open ? "blur(6px)" : "blur(0px)",
         opacity: open ? 1 : 0,
