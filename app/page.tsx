@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Entry } from '@/lib/types';
 // import { makeMockEntries } from '@/lib/simulate';
 import { ensureViewportCentered, type Viewport } from '@/canvas/viewport';
@@ -428,6 +428,36 @@ export default function App() {
   );  
 
   const [selected, setSelected] = useState<Entry | null>(null);
+  const [copyToastOpen, setCopyToastOpen] = useState(false);
+  const [copyToastLabel, setCopyToastLabel] = useState("Link copied");
+  const [copyToastTone, setCopyToastTone] = useState<"success" | "info">("success");
+  const urlHydratedRef = useRef(false);
+  const copyToastTimeoutRef = useRef<number | null>(null);
+  const showCopyToast = useCallback(
+    (label: string, tone: "success" | "info" = "success") => {
+      if (copyToastTimeoutRef.current != null) {
+        window.clearTimeout(copyToastTimeoutRef.current);
+      }
+      setCopyToastLabel(label);
+      setCopyToastTone(tone);
+      setCopyToastOpen(true);
+      copyToastTimeoutRef.current = window.setTimeout(() => {
+        setCopyToastOpen(false);
+        copyToastTimeoutRef.current = null;
+      }, 1800);
+    },
+    []
+  );
+
+  const upsertDbEntry = useCallback((entry: Entry) => {
+    setDbEntries((prev) => {
+      const idx = prev.findIndex((e) => e.id === entry.id);
+      if (idx === -1) return [entry, ...prev];
+      const next = prev.slice();
+      next[idx] = { ...prev[idx], ...entry };
+      return next;
+    });
+  }, []);
 
   const vpRef = useRef<Viewport>({ scale: 92, tx: 0, ty: 0 });
   type DragState = {
@@ -544,6 +574,146 @@ useEffect(() => { themeRef.current = theme; }, [theme]);
       cancelled = true;
     };
   }, [selected?.id]);
+
+  const openEntryFromUrl = useCallback(async () => {
+    if (typeof window === "undefined") return;
+
+    const entryId = new URLSearchParams(window.location.search).get("entry");
+    if (!entryId) {
+      setSelected(null);
+      urlHydratedRef.current = true;
+      return;
+    }
+
+    const existing = dbEntries.find((e) => e.id === entryId);
+    if (existing) {
+      setSelected(existing);
+      urlHydratedRef.current = true;
+      return;
+    }
+
+    try {
+      const full = await fetchEntryById(entryId);
+      upsertDbEntry(full);
+      setSelected(full);
+    } catch (e) {
+      console.error("openEntryFromUrl failed", e);
+    } finally {
+      urlHydratedRef.current = true;
+    }
+  }, [dbEntries, upsertDbEntry]);
+
+  useEffect(() => {
+    void openEntryFromUrl();
+  }, [openEntryFromUrl]);
+
+  useEffect(() => {
+    const onPopState = () => {
+      void openEntryFromUrl();
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [openEntryFromUrl]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!urlHydratedRef.current) return;
+
+    const url = new URL(window.location.href);
+    const current = url.searchParams.get("entry");
+    const next = selected?.id ?? null;
+    if (current === next || (!current && !next)) return;
+
+    if (next) url.searchParams.set("entry", next);
+    else url.searchParams.delete("entry");
+
+    const nextUrl = `${url.pathname}${url.search}${url.hash}`;
+    window.history.replaceState(window.history.state, "", nextUrl);
+  }, [selected?.id]);
+
+  const handleShareSelected = useCallback(async () => {
+    if (!selected || typeof window === "undefined") return;
+
+    const url = new URL(window.location.href);
+    url.searchParams.set("entry", selected.id);
+    const shareUrl = `${url.origin}${url.pathname}${url.search}${url.hash}`;
+
+    let copied = false;
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(shareUrl);
+        copied = true;
+      }
+    }
+    catch {}
+
+    if (!copied) {
+      const ta = document.createElement("textarea");
+      ta.value = shareUrl;
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      ta.style.top = "0";
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      try {
+        copied = document.execCommand("copy");
+      } catch {
+        copied = false;
+      } finally {
+        document.body.removeChild(ta);
+      }
+    }
+
+    if (copied) {
+      showCopyToast("Link copied!", "success");
+      return;
+    }
+
+    window.prompt("Copy this share link:", shareUrl);
+    showCopyToast("Copy from prompt", "info");
+  }, [selected, showCopyToast]);
+
+  useEffect(() => {
+    return () => {
+      if (copyToastTimeoutRef.current != null) {
+        window.clearTimeout(copyToastTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const handlePickSimilar = useCallback(() => {
+    if (!selected) return;
+
+    const candidates = dbEntries.filter((e) => e.id !== selected.id);
+    if (candidates.length === 0) return;
+
+    const sourceValence = selected.valence ?? selected.classification?.valence;
+    const sourceArousal = selected.arousal ?? selected.classification?.arousal;
+
+    const scored = candidates
+      .map((e) => {
+        const v = e.valence ?? e.classification?.valence;
+        const a = e.arousal ?? e.classification?.arousal;
+        if (typeof v !== "number" || typeof a !== "number") return null;
+        if (typeof sourceValence !== "number" || typeof sourceArousal !== "number") return null;
+        const d2 = (v - sourceValence) ** 2 + (a - sourceArousal) ** 2;
+        return { e, d2 };
+      })
+      .filter((x): x is { e: Entry; d2: number } => !!x)
+      .sort((a, b) => a.d2 - b.d2);
+
+    if (scored.length === 0) {
+      const random = candidates[Math.floor(Math.random() * candidates.length)];
+      setSelected(random);
+      return;
+    }
+
+    const topK = scored.slice(0, Math.min(8, scored.length));
+    const picked = topK[Math.floor(Math.random() * topK.length)].e;
+    setSelected(picked);
+  }, [dbEntries, selected]);
   
   useEffect(() => {
     ensureNodeStates(entries);
@@ -1399,6 +1569,9 @@ useEffect(() => { themeRef.current = theme; }, [theme]);
       <DetailPanel
         entry={selected}
         onClose={() => setSelected(null)}
+        onShare={handleShareSelected}
+        onSimilar={handlePickSimilar}
+        canPickSimilar={dbEntries.length > 1}
         theme={theme}
         zIndex={isMobile ? 100 : 10}
       />
@@ -1437,7 +1610,7 @@ useEffect(() => { themeRef.current = theme; }, [theme]);
         onSubmit={(entry: any) => {
           // SubmitModal already inserted + classified + updated in Supabase.
           // This handler should ONLY update UI state.
-          setDbEntries((prev) => [entry, ...prev]);
+          upsertDbEntry(entry);
           setSelected(entry);
         }}
         theme={theme}
@@ -1453,6 +1626,39 @@ useEffect(() => { themeRef.current = theme; }, [theme]);
         }}
         theme={theme}
       />
+
+      {copyToastOpen && (
+        <div
+          style={{
+            position: "fixed",
+            left: "50%",
+            bottom: 48,
+            transform: "translateX(-50%)",
+            zIndex: 2100,
+            borderRadius: 14,
+            border: `1px solid ${theme === "dark" ? "rgba(255,255,255,0.16)" : "rgba(18,19,24,0.16)"}`,
+            background:
+              copyToastTone === "success"
+                ? theme === "dark"
+                  ? "rgba(34,114,58,0.94)"
+                  : "rgba(198,233,160,0.96)"
+                : theme === "dark"
+                ? "rgba(151,117,35,0.94)"
+                : "rgba(246,226,162,0.97)",
+            color: theme === "dark" ? "rgba(255,255,255,0.95)" : "rgba(18,19,24,0.9)",
+            boxShadow: "0 14px 38px rgba(0,0,0,0.35)",
+            backdropFilter: "blur(8px)",
+            padding: "14px 18px",
+            minWidth: 190,
+            textAlign: "center",
+            fontSize: 16,
+            fontWeight: 600,
+            letterSpacing: "0.02em",
+          }}
+        >
+          {copyToastLabel}
+        </div>
+      )}
 
       {aboutOpen && (
         <div
